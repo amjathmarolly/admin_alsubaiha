@@ -35,7 +35,7 @@ export function maskToken(token: string): string {
 }
 
 /** The userId of a valid, unexpired staff (non-customer) session, or null. */
-async function staffUserId(): Promise<string | null> {
+export async function staffUserId(): Promise<string | null> {
   const raw = (await cookies()).get("session")?.value
   if (!raw) return null
   try {
