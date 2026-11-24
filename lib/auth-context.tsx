@@ -140,12 +140,6 @@ const demoUsers: Record<string, { id: string; name: string; role: string; permis
   },
 }
 
-const demoPasswords: Record<string, string> = {
-  "admin@alsubaiha.com": "admin123",
-  "manager@alsubaiha.com": "manager123",
-  "staff@alsubaiha.com": "staff123",
-  "viewer@alsubaiha.com": "viewer123",
-}
 
 const defaultRoles: RoleDefinition[] = [
   {
@@ -226,6 +220,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (savedUser) {
         setUser(JSON.parse(savedUser))
+        // The saved user is only a cache: if the server no longer has a session
+        // (expired cookie), sign out instead of showing a dashboard that can't save.
+        fetch("/api/auth/me", { credentials: "include" })
+          .then((res) => {
+            if (res.status === 401) {
+              localStorage.removeItem("furnish_user")
+              localStorage.removeItem("furnish_permissions")
+              setUser(null)
+              setPermissions([])
+            }
+          })
+          .catch(() => {})
       }
       if (savedPermissions) {
         setPermissions(JSON.parse(savedPermissions))
@@ -289,52 +295,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem("furnish_permissions", JSON.stringify(data.permissions || []))
 
         return true
-      } else {
-        console.log("[v0] API login failed, trying demo users as fallback")
-        
-        // Fallback to demo users if API fails
-        if (demoPasswords[emailLower] && demoPasswords[emailLower] === password) {
-          const demoUser = demoUsers[emailLower]
-          const newUser: User = {
-            id: demoUser.id,
-            name: demoUser.name,
-            email: emailLower,
-            role: demoUser.role,
-          }
-
-          setUser(newUser)
-          setPermissions(demoUser.permissions)
-
-          localStorage.setItem("furnish_user", JSON.stringify(newUser))
-          localStorage.setItem("furnish_permissions", JSON.stringify(demoUser.permissions))
-
-          return true
-        }
       }
 
       return false
     } catch (error) {
       console.error("[v0] Login error:", error)
-
-      // Fallback to demo users if network error
-      const emailLower = email.toLowerCase().trim()
-      if (demoPasswords[emailLower] && demoPasswords[emailLower] === password) {
-        const demoUser = demoUsers[emailLower]
-        const newUser: User = {
-          id: demoUser.id,
-          name: demoUser.name,
-          email: emailLower,
-          role: demoUser.role,
-        }
-
-        setUser(newUser)
-        setPermissions(demoUser.permissions)
-
-        localStorage.setItem("furnish_user", JSON.stringify(newUser))
-        localStorage.setItem("furnish_permissions", JSON.stringify(demoUser.permissions))
-
-        return true
-      }
 
       return false
     }

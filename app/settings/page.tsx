@@ -287,18 +287,35 @@ export default function SettingsPage() {
       })
       return
     }
-    if (securityForm.newPassword && securityForm.newPassword.length < 8) {
+    if (securityForm.newPassword.length < 10) {
       toast({
         title: "Error",
-        description: "New password must be at least 8 characters long.",
+        description: "New password must be at least 10 characters long.",
         variant: "destructive",
       })
       return
     }
     setIsSavingSecurity(true)
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    let error = ""
+    try {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          currentPassword: securityForm.currentPassword,
+          newPassword: securityForm.newPassword,
+        }),
+      })
+      if (!res.ok) error = (await res.json().catch(() => null))?.error || "Could not change the password."
+    } catch {
+      error = "Could not reach the server. Please try again."
+    }
     setIsSavingSecurity(false)
+    if (error) {
+      toast({ title: "Password not changed", description: error, variant: "destructive" })
+      return
+    }
     setSecurityForm({
       currentPassword: "",
       newPassword: "",

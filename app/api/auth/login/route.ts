@@ -4,25 +4,7 @@ import { cookies } from "next/headers"
 import type { RowDataPacket, ResultSetHeader } from "mysql2"
 import { withCors } from "@/lib/cors"
 import bcrypt from "bcrypt"
-
-// Simple password comparison for demo
-// In production, use bcrypt.compare
-const demoPasswords: Record<string, string> = {
-  "admin@alsubaiha.com": "admin123",
-  "manager@alsubaiha.com": "manager123",
-  "staff@alsubaiha.com": "staff123",
-  "viewer@alsubaiha.com": "viewer123",
-}
-
-const verifyPassword = (email: string, password: string): boolean => {
-  // Check if it's a demo account
-  const expectedPassword = demoPasswords[email.toLowerCase()]
-  if (expectedPassword) {
-    return password === expectedPassword
-  }
-  // For non-demo accounts, accept any password (in production, use bcrypt)
-  return true
-}
+import { verifyStaffPassword } from "@/lib/staff-password"
 
 interface UserRow extends RowDataPacket {
   id: string
@@ -33,6 +15,7 @@ interface UserRow extends RowDataPacket {
   role_id: string | null
   status: "active" | "inactive" | "suspended"
   last_login: Date | null
+  password_changed_at?: Date | null
 }
 
 interface RoleRow extends RowDataPacket {
@@ -153,7 +136,7 @@ const loginHandler = async (request: NextRequest) => {
     }
 
     // Verify password
-    if (!verifyPassword(user.email, password)) {
+    if (!(await verifyStaffPassword(user, password))) {
       return NextResponse.json(
         { error: "Invalid email or password" },
         { status: 401 }
