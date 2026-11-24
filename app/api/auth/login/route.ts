@@ -167,10 +167,13 @@ const loginHandler = async (request: NextRequest) => {
     }
 
     // Update last login
-    await query<ResultSetHeader>(
-      "UPDATE users SET last_login = NOW() WHERE id = ?",
-      [user.id]
-    )
+    // Recording the time is optional: the live users table has no last_login
+    // column, and a failure here must not block the sign-in.
+    try {
+      await query<ResultSetHeader>("UPDATE users SET last_login = NOW() WHERE id = ?", [user.id])
+    } catch (e) {
+      console.warn("[Login] Could not record last_login:", (e as Error).message)
+    }
 
     // Create session token (in production, use JWT or secure session)
     const sessionToken = Buffer.from(

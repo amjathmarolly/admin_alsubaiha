@@ -283,7 +283,7 @@ const meHandler = async () => {
 
     // Handle Admin/Staff User Session
     const userResult = await query<UserRow[]>(
-      "SELECT id, email, name, avatar, role_id, status, created_at, updated_at FROM users WHERE id = ?",
+      "SELECT * FROM users WHERE id = ?",
       [session.userId]
     )
 
