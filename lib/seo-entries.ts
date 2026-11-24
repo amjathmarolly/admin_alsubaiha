@@ -93,9 +93,14 @@ export async function listEntries(type: SeoEntityType): Promise<SeoEntry[]> {
   }
   if (type === "project") {
     const rows = await query<ProjectRow[]>(`SELECT id, title, location FROM projects WHERE status = 'active' ORDER BY sort_order, title`)
+    // A project's address comes from its canonical URL (/projects/<slug>), as on the website.
+    const slugOf = (url: string | null | undefined): string | null => {
+      const m = (url ?? "").match(/^https?:\/\/[^/]+\/projects\/([^/?#]+)\/?$/i)
+      return m && !/^proj_/i.test(m[1]) ? decodeURIComponent(m[1]).toLowerCase() : null
+    }
     return rows.map((p) => ({
       type, key: p.id, label: p.location ? `${p.title} (${p.location})` : p.title,
-      path: `/projects/${p.id}`, seo: seo(p.id), defaults: noDefaults,
+      path: `/projects/${slugOf(seo(p.id)?.canonicalUrl) ?? p.id}`, seo: seo(p.id), defaults: noDefaults,
     }))
   }
   const rows = await query<DesignerRow[]>(`SELECT id, name FROM designers WHERE status = 'active' ORDER BY sort_order, name`)
