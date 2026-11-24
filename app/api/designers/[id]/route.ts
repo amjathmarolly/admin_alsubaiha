@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db/config";
 import type { RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import { withCors } from "@/lib/cors";
+import { ensureDesignerColumns, readHoverVideo } from "@/lib/designer-media";
+import { revalidateWebsite } from "@/lib/seo";
 
 interface DesignerRow extends RowDataPacket {
   id: string;
@@ -15,6 +17,7 @@ interface DesignerRow extends RowDataPacket {
   social_links: string | any;
   status: "active" | "inactive";
   sort_order: number;
+  hover_video?: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -41,6 +44,7 @@ async function getHandler(
     // Resolve promise params for Next.js 15/16
     const resolvedParams = await params;
     const { id } = resolvedParams;
+    await ensureDesignerColumns();
 
     const items = await query<DesignerRow[]>(
       "SELECT * FROM designers WHERE id = ?",
@@ -60,6 +64,7 @@ async function getHandler(
       design_principles: parseJSONField(item.design_principles),
       notable_works: parseJSONField(item.notable_works),
       social_links: parseJSONField(item.social_links),
+      hover_video: item.hover_video || null,
     };
 
     return NextResponse.json(formattedItem);
@@ -81,7 +86,12 @@ async function putHandler(
     const resolvedParams = await params;
     const { id } = resolvedParams;
 
+    await ensureDesignerColumns();
     const body = await request.json();
+    const hover = readHoverVideo(body);
+    if (hover.provided && "error" in hover) {
+      return NextResponse.json({ error: hover.error }, { status: 400 });
+    }
     const {
       name,
       image,
@@ -108,7 +118,7 @@ async function putHandler(
       UPDATE designers 
       SET name = ?, image = ?, short_bio = ?, inspiration_text = ?, 
           design_principles = ?, notable_works = ?, website = ?, social_links = ?, 
-          status = ?, sort_order = ?
+          status = ?, sort_order = ?${hover.provided ? ", hover_video = ?" : ""}
       WHERE id = ?
     `;
 
@@ -123,6 +133,7 @@ async function putHandler(
       JSON.stringify(socialLinks || {}),
       status || "active",
       sortOrder || 0,
+      ...(hover.provided && "value" in hover ? [hover.value] : []),
       id,
     ]);
 
@@ -133,8 +144,10 @@ async function putHandler(
       design_principles: parseJSONField(updatedItem.design_principles),
       notable_works: parseJSONField(updatedItem.notable_works),
       social_links: parseJSONField(updatedItem.social_links),
+      hover_video: updatedItem.hover_video || null,
     };
 
+    await revalidateWebsite().catch(() => false);
     return NextResponse.json(formattedItem);
   } catch (error: any) {
     console.error("PUT /api/designers/[id] error:", error);
@@ -163,6 +176,7 @@ async function deleteHandler(
     }
 
     await query<ResultSetHeader>("DELETE FROM designers WHERE id = ?", [id]);
+    await revalidateWebsite().catch(() => false);
 
     return NextResponse.json({ success: true, message: "Designer deleted successfully" });
   } catch (error: any) {
