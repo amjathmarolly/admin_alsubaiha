@@ -59,6 +59,42 @@ export function StructuredDataTab() {
           <div className="space-y-1.5"><Label>Price currency</Label><Input value={settings.currency} maxLength={3} onChange={(e) => setSettings({ ...settings, currency: e.target.value.toUpperCase() })} className="bg-secondary" /></div>
           <div className="space-y-1.5"><Label>Phone</Label><Input value={o.phone} onChange={(e) => setOrg({ phone: e.target.value })} className="bg-secondary" /></div>
           <div className="space-y-1.5"><Label>Email</Label><Input value={o.email} onChange={(e) => setOrg({ email: e.target.value })} className="bg-secondary" /></div>
+          <div className="space-y-1.5"><Label>Legal name</Label><Input value={o.legalName} onChange={(e) => setOrg({ legalName: e.target.value })} placeholder="As on the trade licence" className="bg-secondary" /></div>
+          <div className="space-y-1.5"><Label>Founded (year or date)</Label><Input value={o.foundingDate} onChange={(e) => setOrg({ foundingDate: e.target.value })} placeholder="1994" className="bg-secondary" /></div>
+          <div className="space-y-1.5 sm:col-span-2"><Label>Showroom / factory photo URL</Label><Input value={o.image} onChange={(e) => setOrg({ image: e.target.value })} placeholder="Shown in Google's business result. Defaults to the logo." className="bg-secondary" /></div>
+        </div>
+
+        <div className="space-y-3 border-t pt-4">
+          <div>
+            <h4 className="text-sm font-medium">Address and location</h4>
+            <p className="text-xs text-muted-foreground">With an address, the website marks Al Subaiha as a local furniture store for Google Maps and local search.</p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5 sm:col-span-2"><Label>Street address</Label><Input value={o.address.streetAddress} onChange={(e) => setOrg({ address: { ...o.address, streetAddress: e.target.value } })} placeholder="Building, street, area" className="bg-secondary" /></div>
+            <div className="space-y-1.5"><Label>City</Label><Input value={o.address.addressLocality} onChange={(e) => setOrg({ address: { ...o.address, addressLocality: e.target.value } })} placeholder="Sharjah" className="bg-secondary" /></div>
+            <div className="space-y-1.5"><Label>Emirate / region</Label><Input value={o.address.addressRegion} onChange={(e) => setOrg({ address: { ...o.address, addressRegion: e.target.value } })} placeholder="Sharjah" className="bg-secondary" /></div>
+            <div className="space-y-1.5"><Label>P.O. Box / postal code</Label><Input value={o.address.postalCode} onChange={(e) => setOrg({ address: { ...o.address, postalCode: e.target.value } })} className="bg-secondary" /></div>
+            <div className="space-y-1.5"><Label>Country code</Label><Input value={o.address.addressCountry} maxLength={2} onChange={(e) => setOrg({ address: { ...o.address, addressCountry: e.target.value.toUpperCase() } })} placeholder="AE" className="bg-secondary" /></div>
+            <div className="space-y-1.5"><Label>Latitude</Label><Input value={(o.geo.latitude ?? "") as any} onChange={(e) => setOrg({ geo: { ...o.geo, latitude: e.target.value as unknown as number } })} placeholder="25.3…" className="bg-secondary" /></div>
+            <div className="space-y-1.5"><Label>Longitude</Label><Input value={(o.geo.longitude ?? "") as any} onChange={(e) => setOrg({ geo: { ...o.geo, longitude: e.target.value as unknown as number } })} placeholder="55.6…" className="bg-secondary" /></div>
+          </div>
+        </div>
+
+        <div className="grid gap-4 border-t pt-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label>Opening hours (one per line)</Label>
+            <Textarea rows={3} value={o.openingHours.join("\n")} onChange={(e) => setOrg({ openingHours: e.target.value.split("\n") })} placeholder={"Sa-Th 08:00-18:00"} className="bg-secondary font-mono text-xs" />
+            <p className="text-xs text-muted-foreground">Days: Mo Tu We Th Fr Sa Su. Example: <code>Sa-Th 08:00-18:00</code></p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Areas served (one per line)</Label>
+            <Textarea rows={3} value={o.areaServed.join("\n")} onChange={(e) => setOrg({ areaServed: e.target.value.split("\n") })} placeholder={"Dubai\nAbu Dhabi\nSharjah"} className="bg-secondary" />
+          </div>
+          <div className="space-y-1.5"><Label>Price range</Label><Input value={o.priceRange} onChange={(e) => setOrg({ priceRange: e.target.value })} placeholder="$$$" className="bg-secondary" /></div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5"><Label>Google rating</Label><Input value={(o.rating.value ?? "") as any} onChange={(e) => setOrg({ rating: { ...o.rating, value: e.target.value as unknown as number } })} placeholder="4.6" className="bg-secondary" /></div>
+            <div className="space-y-1.5"><Label>Reviews</Label><Input value={(o.rating.count ?? "") as any} onChange={(e) => setOrg({ rating: { ...o.rating, count: e.target.value as unknown as number } })} placeholder="115" className="bg-secondary" /></div>
+          </div>
         </div>
         <div className="space-y-1.5">
           <Label>Social profiles (one URL per line)</Label>

@@ -53,6 +53,8 @@ interface SeoOverride {
   noindex: boolean
   twitterCard: "summary" | "summary_large_image" | null
   twitterImage: string | null
+  h1: string | null
+  intro: string | null
 }
 
 interface Entry {
@@ -80,7 +82,7 @@ function EntryList({ type }: { type: EntityType }) {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
   const [editing, setEditing] = useState<Entry | null>(null)
-  const [form, setForm] = useState({ title: "", description: "", ogImage: "", canonicalUrl: "", noindex: false, twitterCard: "summary_large_image" as "summary" | "summary_large_image", twitterImage: "" })
+  const [form, setForm] = useState({ title: "", description: "", ogImage: "", canonicalUrl: "", noindex: false, twitterCard: "summary_large_image" as "summary" | "summary_large_image", twitterImage: "", h1: "", intro: "" })
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
 
@@ -117,6 +119,8 @@ function EntryList({ type }: { type: EntityType }) {
       noindex: entry.seo?.noindex ?? false,
       twitterCard: entry.seo?.twitterCard ?? "summary_large_image",
       twitterImage: entry.seo?.twitterImage ?? "",
+      h1: entry.seo?.h1 ?? "",
+      intro: entry.seo?.intro ?? "",
     })
   }
 
@@ -256,6 +260,19 @@ function EntryList({ type }: { type: EntityType }) {
                 <Counter value={form.description} max={DESC_MAX} />
               </div>
               <Textarea id="seoDesc" rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="bg-secondary" />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="seoH1">Main heading (H1)</Label>
+                <Counter value={form.h1} max={70} />
+              </div>
+              <Input id="seoH1" value={form.h1} onChange={(e) => setForm({ ...form, h1: e.target.value })} placeholder="The visible heading on the page. Leave empty to use the website's default." className="bg-secondary" />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="seoIntro">Intro text</Label>
+              <Textarea id="seoIntro" rows={3} value={form.intro} onChange={(e) => setForm({ ...form, intro: e.target.value })} placeholder="One or two sentences under the heading, with the main keywords. Leave empty to use the description." className="bg-secondary" />
             </div>
 
             <div className="space-y-2">

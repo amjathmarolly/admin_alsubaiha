@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireAdmin } from "@/lib/integration-token"
 import { listEntries } from "@/lib/seo-entries"
-import { STATIC_PAGES, SEO_ENTITY_TYPES, isSeoEntityType, revalidateWebsite, saveSeo, type SeoEntityType } from "@/lib/seo"
+import { SEO_ENTITY_TYPES, isEditablePageKey, isSeoEntityType, revalidateWebsite, saveSeo, type SeoEntityType } from "@/lib/seo"
 
 export const dynamic = "force-dynamic"
 
@@ -34,7 +34,7 @@ export async function PUT(request: NextRequest) {
   if (!isSeoEntityType(type) || !key) {
     return NextResponse.json({ error: "type and key are required" }, { status: 400 })
   }
-  if (type === "page" && !STATIC_PAGES.some((p) => p.key === key)) {
+  if (type === "page" && !isEditablePageKey(key)) {
     return NextResponse.json({ error: "Unknown page" }, { status: 400 })
   }
   const canonicalUrl = clean(body.canonicalUrl, 500)
@@ -50,6 +50,8 @@ export async function PUT(request: NextRequest) {
       noindex: Boolean(body.noindex),
       twitterCard: body.twitterCard === "summary" || body.twitterCard === "summary_large_image" ? body.twitterCard : null,
       twitterImage: clean(body.twitterImage, 500),
+      h1: clean(body.h1, 255),
+      intro: clean(body.intro, 2000),
     })
     const revalidated = await revalidateWebsite()
     return NextResponse.json({ ok: true, revalidated })

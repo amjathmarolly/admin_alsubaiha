@@ -1,0 +1,32 @@
+# Builds the admin on every push and pull request, so a change that would break the
+# Hostinger build is caught before it is deployed. No secrets are needed to build.
+name: Build
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Type check (changed SEO/content code)
+        run: |
+          npx tsc --noEmit -p . 2>&1 | tee tsc.log || true
+          if grep -E "^(lib/(seo|seo-tools|seo-entries|uploads|site-content|firebase-admin)|app/(uploads|factory-videos|faqs|api/(faqs|factory-videos|upload|seo))|components/(content|seo))" tsc.log; then
+            echo "Type errors in SEO/content code"; exit 1
+          fi
+      - run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"

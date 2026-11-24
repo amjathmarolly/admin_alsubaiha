@@ -4,9 +4,12 @@ import { sendEmail, generateVerificationEmail } from "@/lib/email";
 import crypto from "crypto";
 import bcrypt from "bcrypt";
 
-// Starting password for new customer accounts. Set DEFAULT_CUSTOMER_PASSWORD in the
-// server environment (Hostinger -> Environment variables); it is not kept in the code.
-const DEFAULT_PASSWORD = process.env.DEFAULT_CUSTOMER_PASSWORD || "";
+// Starting password for new customer accounts: DEFAULT_CUSTOMER_PASSWORD from the server
+// environment (Hostinger -> Environment variables) if set; otherwise each customer gets
+// their own random password. Either way it is sent in the welcome email.
+function startingPassword(): string {
+  return process.env.DEFAULT_CUSTOMER_PASSWORD || `As-${crypto.randomBytes(6).toString("base64url")}9`;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -42,10 +45,7 @@ export async function POST(req: NextRequest) {
     // Generate verification token
     const verificationToken = crypto.randomBytes(32).toString("hex");
 
-    if (!DEFAULT_PASSWORD) {
-      console.error("[Signup] DEFAULT_CUSTOMER_PASSWORD is not set");
-      return NextResponse.json({ error: "Sign-up is not configured" }, { status: 500 });
-    }
+    const DEFAULT_PASSWORD = startingPassword();
 
     // Hash the default password
     const saltRounds = 10;

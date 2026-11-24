@@ -44,21 +44,66 @@ export function ensureSeoToolTables(): Promise<unknown> {
 
 // ---------- settings ----------
 
+export interface OrgAddress {
+  streetAddress: string
+  addressLocality: string
+  addressRegion: string
+  postalCode: string
+  addressCountry: string
+}
+
+/** Business details used for the website's Organization / LocalBusiness schema. */
+export interface SeoOrg {
+  name: string
+  legalName: string
+  url: string
+  logo: string
+  /** Photo of the showroom / factory for the business listing. */
+  image: string
+  sameAs: string[]
+  phone: string
+  email: string
+  foundingDate: string
+  address: OrgAddress
+  geo: { latitude: number | null; longitude: number | null }
+  /** schema.org format, one entry per line, e.g. "Sa-Th 08:00-18:00" */
+  openingHours: string[]
+  priceRange: string
+  areaServed: string[]
+  /** Overall Google rating, e.g. 4.6 from 115 reviews. Empty = not shown. */
+  rating: { value: number | null; count: number | null }
+}
+
+export interface SeoTracking {
+  ga4Id: string
+  metaPixelId: string
+  gscVerification: string
+  bingVerification: string
+  gtmId: string
+  googleAdsId: string
+}
+
 export interface SeoSettings {
   robotsTxt: string
   sitemapExclude: string[] // website paths left out of the sitemap
-  org: { name: string; url: string; logo: string; sameAs: string[]; phone: string; email: string }
-  tracking: { ga4Id: string; metaPixelId: string; gscVerification: string; bingVerification: string }
+  org: SeoOrg
+  tracking: SeoTracking
   currency: string
 }
+
+const emptyAddress = (): OrgAddress => ({ streetAddress: "", addressLocality: "", addressRegion: "", postalCode: "", addressCountry: "" })
 
 export const DEFAULT_SITE_URL = "https://alsubaiha.ae"
 
 export const defaultSettings = (): SeoSettings => ({
   robotsTxt: `User-agent: *\nAllow: /\nDisallow: /cart\nDisallow: /checkout\nDisallow: /account\n\nSitemap: ${DEFAULT_SITE_URL}/sitemap.xml`,
   sitemapExclude: [],
-  org: { name: "Al Subaiha", url: DEFAULT_SITE_URL, logo: "", sameAs: [], phone: "", email: "" },
-  tracking: { ga4Id: "", metaPixelId: "", gscVerification: "", bingVerification: "" },
+  org: {
+    name: "Al Subaiha", legalName: "", url: DEFAULT_SITE_URL, logo: "", image: "", sameAs: [], phone: "", email: "",
+    foundingDate: "", address: emptyAddress(), geo: { latitude: null, longitude: null }, openingHours: [],
+    priceRange: "", areaServed: [], rating: { value: null, count: null },
+  },
+  tracking: { ga4Id: "", metaPixelId: "", gscVerification: "", bingVerification: "", gtmId: "", googleAdsId: "" },
   currency: "AED",
 })
 
@@ -73,7 +118,11 @@ export async function getSettings(): Promise<SeoSettings> {
   if (!rows.length) return d
   try {
     const s = JSON.parse(rows[0].setting_value)
-    return { ...d, ...s, org: { ...d.org, ...s.org }, tracking: { ...d.tracking, ...s.tracking } }
+    const org = { ...d.org, ...s.org }
+    org.address = { ...d.org.address, ...(s.org?.address ?? {}) }
+    org.geo = { ...d.org.geo, ...(s.org?.geo ?? {}) }
+    org.rating = { ...d.org.rating, ...(s.org?.rating ?? {}) }
+    return { ...d, ...s, org, tracking: { ...d.tracking, ...s.tracking } }
   } catch {
     return d
   }
@@ -82,6 +131,60 @@ export async function getSettings(): Promise<SeoSettings> {
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "")
 const idLike = (v: unknown, max = 60) => str(v, max).replace(/[^\w\-.:]/g, "")
 
+/** A field left out of the request keeps its saved value (older forms don't send new fields). */
+const keep = <T,>(v: unknown, current: T, clean: (v: unknown) => T): T => (v === undefined ? current : clean(v))
+
+const num = (v: unknown, min: number, max: number): number | null => {
+  if (v === null || v === "" || v === undefined) return null
+  const n = typeof v === "number" ? v : Number(String(v).trim())
+  return Number.isFinite(n) && n >= min && n <= max ? n : null
+}
+
+const lines = (v: unknown, maxItems: number, maxLen: number): string[] =>
+  (Array.isArray(v) ? v : typeof v === "string" ? v.split("\n") : [])
+    .filter((x): x is string => typeof x === "string")
+    .map((x) => x.trim().slice(0, maxLen))
+    .filter(Boolean)
+    .slice(0, maxItems)
+
+function cleanOrg(o: Partial<SeoOrg> & Record<string, any>, cur: SeoOrg): SeoOrg {
+  const a = o.address
+  return {
+    name: keep(o.name, cur.name, (v) => str(v, 120)),
+    legalName: keep(o.legalName, cur.legalName, (v) => str(v, 160)),
+    url: keep(o.url, cur.url, (v) => str(v, 300)),
+    logo: keep(o.logo, cur.logo, (v) => str(v, 500)),
+    image: keep(o.image, cur.image, (v) => str(v, 500)),
+    sameAs: keep(o.sameAs, cur.sameAs, (v) =>
+      lines(v, 20, 300).filter((u) => /^https?:\/\//i.test(u))
+    ),
+    phone: keep(o.phone, cur.phone, (v) => str(v, 40)),
+    email: keep(o.email, cur.email, (v) => str(v, 120)),
+    foundingDate: keep(o.foundingDate, cur.foundingDate, (v) => str(v, 10).replace(/[^\d-]/g, "")),
+    address:
+      a === undefined
+        ? cur.address
+        : {
+            streetAddress: str(a?.streetAddress, 200),
+            addressLocality: str(a?.addressLocality, 100),
+            addressRegion: str(a?.addressRegion, 100),
+            postalCode: str(a?.postalCode, 20),
+            addressCountry: str(a?.addressCountry, 2).toUpperCase(),
+          },
+    geo:
+      o.geo === undefined
+        ? cur.geo
+        : { latitude: num(o.geo?.latitude, -90, 90), longitude: num(o.geo?.longitude, -180, 180) },
+    openingHours: keep(o.openingHours, cur.openingHours, (v) => lines(v, 14, 60)),
+    priceRange: keep(o.priceRange, cur.priceRange, (v) => str(v, 20)),
+    areaServed: keep(o.areaServed, cur.areaServed, (v) => lines(v, 30, 80)),
+    rating:
+      o.rating === undefined
+        ? cur.rating
+        : { value: num(o.rating?.value, 1, 5), count: num(o.rating?.count, 1, 10_000_000) },
+  }
+}
+
 export async function saveSettings(input: Partial<SeoSettings>): Promise<SeoSettings> {
   const cur = await getSettings()
   const next: SeoSettings = {
@@ -89,25 +192,15 @@ export async function saveSettings(input: Partial<SeoSettings>): Promise<SeoSett
     sitemapExclude: Array.isArray(input.sitemapExclude)
       ? input.sitemapExclude.filter((p): p is string => typeof p === "string" && p.startsWith("/")).slice(0, 5000)
       : cur.sitemapExclude,
-    org: input.org
-      ? {
-          name: str(input.org.name, 120),
-          url: str(input.org.url, 300),
-          logo: str(input.org.logo, 500),
-          sameAs: (Array.isArray(input.org.sameAs) ? input.org.sameAs : [])
-            .filter((u): u is string => typeof u === "string" && /^https?:\/\//i.test(u.trim()))
-            .map((u) => u.trim())
-            .slice(0, 20),
-          phone: str(input.org.phone, 40),
-          email: str(input.org.email, 120),
-        }
-      : cur.org,
+    org: input.org ? cleanOrg(input.org, cur.org) : cur.org,
     tracking: input.tracking
       ? {
           ga4Id: idLike(input.tracking.ga4Id),
           metaPixelId: idLike(input.tracking.metaPixelId),
           gscVerification: idLike(input.tracking.gscVerification, 120),
           bingVerification: idLike(input.tracking.bingVerification, 120),
+          gtmId: keep(input.tracking.gtmId, cur.tracking.gtmId, (v) => idLike(v)),
+          googleAdsId: keep(input.tracking.googleAdsId, cur.tracking.googleAdsId, (v) => idLike(v)),
         }
       : cur.tracking,
     currency: input.currency !== undefined ? str(input.currency, 3).toUpperCase() || "AED" : cur.currency,

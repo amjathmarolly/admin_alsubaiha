@@ -15,6 +15,10 @@ export interface SeoOverride {
   noindex: boolean
   twitterCard: "summary" | "summary_large_image" | null
   twitterImage: string | null
+  /** Visible main heading on the page (the website falls back to its own heading). */
+  h1: string | null
+  /** Short intro paragraph shown under the heading. */
+  intro: string | null
 }
 
 interface SeoRow extends RowDataPacket {
@@ -25,6 +29,8 @@ interface SeoRow extends RowDataPacket {
   noindex: number
   twitter_card: string | null
   twitter_image: string | null
+  h1: string | null
+  intro: string | null
 }
 
 // Website routes whose metadata can be edited in Admin -> SEO.
@@ -39,10 +45,17 @@ export const STATIC_PAGES: { key: string; label: string }[] = [
   { key: "/care", label: "Care guide" },
   { key: "/how-we-work", label: "How we work" },
   { key: "/testimonials", label: "Testimonials" },
+  { key: "/collections", label: "All collections" },
   { key: "/projects", label: "Projects" },
   { key: "/blogs", label: "Blogs" },
   { key: "/atelier-live", label: "Atelier Live" },
 ]
+
+/** Blog posts are SEO "page" entries keyed by their website path, e.g. /blogs/my-post. */
+export const BLOG_PAGE_KEY = /^\/blogs\/[a-z0-9][a-z0-9-]*$/
+
+export const isEditablePageKey = (key: string): boolean =>
+  STATIC_PAGES.some((p) => p.key === key) || BLOG_PAGE_KEY.test(key)
 
 let tableReady: Promise<unknown> | null = null
 
@@ -64,6 +77,8 @@ export function ensureSeoTable(): Promise<unknown> {
   )
     .then(() => addColumnIfMissing("seo_metadata", "twitter_card", "VARCHAR(30) NULL"))
     .then(() => addColumnIfMissing("seo_metadata", "twitter_image", "VARCHAR(500) NULL"))
+    .then(() => addColumnIfMissing("seo_metadata", "h1", "VARCHAR(255) NULL"))
+    .then(() => addColumnIfMissing("seo_metadata", "intro", "TEXT NULL"))
     .catch((err) => {
       tableReady = null
       throw err
@@ -88,12 +103,14 @@ const toOverride = (r: SeoRow): SeoOverride => ({
   noindex: Boolean(r.noindex),
   twitterCard: r.twitter_card === "summary" || r.twitter_card === "summary_large_image" ? r.twitter_card : null,
   twitterImage: r.twitter_image,
+  h1: r.h1 ?? null,
+  intro: r.intro ?? null,
 })
 
 export async function getSeo(type: SeoEntityType, key: string): Promise<SeoOverride | null> {
   await ensureSeoTable()
   const rows = await query<SeoRow[]>(
-    `SELECT title, description, og_image, canonical_url, noindex, twitter_card, twitter_image
+    `SELECT title, description, og_image, canonical_url, noindex, twitter_card, twitter_image, h1, intro
      FROM seo_metadata WHERE entity_type = ? AND entity_key = ? LIMIT 1`,
     [type, key]
   )
@@ -103,7 +120,7 @@ export async function getSeo(type: SeoEntityType, key: string): Promise<SeoOverr
 export async function getSeoMap(type: SeoEntityType): Promise<Map<string, SeoOverride>> {
   await ensureSeoTable()
   const rows = await query<(SeoRow & { entity_key: string })[]>(
-    `SELECT entity_key, title, description, og_image, canonical_url, noindex, twitter_card, twitter_image
+    `SELECT entity_key, title, description, og_image, canonical_url, noindex, twitter_card, twitter_image, h1, intro
      FROM seo_metadata WHERE entity_type = ?`,
     [type]
   )
@@ -113,18 +130,19 @@ export async function getSeoMap(type: SeoEntityType): Promise<Map<string, SeoOve
 /** Saves an override; an entirely empty override deletes the row (falls back to defaults). */
 export async function saveSeo(type: SeoEntityType, key: string, o: SeoOverride): Promise<void> {
   await ensureSeoTable()
-  const empty = !o.title && !o.description && !o.ogImage && !o.canonicalUrl && !o.noindex && !o.twitterCard && !o.twitterImage
+  const empty = !o.title && !o.description && !o.ogImage && !o.canonicalUrl && !o.noindex && !o.twitterCard && !o.twitterImage && !o.h1 && !o.intro
   if (empty) {
     await query("DELETE FROM seo_metadata WHERE entity_type = ? AND entity_key = ?", [type, key])
     return
   }
   await query(
-    `INSERT INTO seo_metadata (id, entity_type, entity_key, title, description, og_image, canonical_url, noindex, twitter_card, twitter_image)
-     VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO seo_metadata (id, entity_type, entity_key, title, description, og_image, canonical_url, noindex, twitter_card, twitter_image, h1, intro)
+     VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE title = VALUES(title), description = VALUES(description),
        og_image = VALUES(og_image), canonical_url = VALUES(canonical_url), noindex = VALUES(noindex),
-       twitter_card = VALUES(twitter_card), twitter_image = VALUES(twitter_image)`,
-    [type, key, o.title, o.description, o.ogImage, o.canonicalUrl, o.noindex ? 1 : 0, o.twitterCard, o.twitterImage]
+       twitter_card = VALUES(twitter_card), twitter_image = VALUES(twitter_image),
+       h1 = VALUES(h1), intro = VALUES(intro)`,
+    [type, key, o.title, o.description, o.ogImage, o.canonicalUrl, o.noindex ? 1 : 0, o.twitterCard, o.twitterImage, o.h1 ?? null, o.intro ?? null]
   )
 }
 

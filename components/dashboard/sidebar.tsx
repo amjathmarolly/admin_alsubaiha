@@ -24,6 +24,8 @@ import {
   Palette,
   Hammer,
   Search,
+  Clapperboard,
+  HelpCircle,
 } from "lucide-react"
 import {
   AlertDialog,
@@ -52,10 +54,12 @@ const mainNavItems: NavItem[] = [
   { name: "Customers", href: "/customers", icon: Users, permission: "view_customers" },
   { name: "Our Work", href: "/our-work", icon: Camera, permission: "view_our_work" },
   { name: "Atelier Live", href: "/atelier-live", icon: Hammer, permission: "view_atelier_live" },
+  { name: "Factory Videos", href: "/factory-videos", icon: Clapperboard, permission: "view_our_work" },
   { name: "Projects", href: "/projects", icon: Briefcase, permission: "view_our_work" },
   { name: "Designers", href: "/designers", icon: Palette, permission: "view_our_work" },
   { name: "Analytics", href: "/analytics", icon: BarChart3, permission: "view_analytics" },
   { name: "SEO", href: "/seo", icon: Search, permission: "view_products" },
+  { name: "FAQ", href: "/faqs", icon: HelpCircle, permission: "view_products" },
 ]
 
 const inventoryItems: NavItem[] = [
