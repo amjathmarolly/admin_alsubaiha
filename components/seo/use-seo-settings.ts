@@ -3,13 +3,8 @@
 import { useCallback, useEffect, useState } from "react"
 import { useToast } from "@/hooks/use-toast"
 
-export interface SeoSettings {
-  robotsTxt: string
-  sitemapExclude: string[]
-  org: { name: string; url: string; logo: string; sameAs: string[]; phone: string; email: string }
-  tracking: { ga4Id: string; metaPixelId: string; gscVerification: string; bingVerification: string }
-  currency: string
-}
+import type { SeoSettings } from "@/lib/seo-tools"
+export type { SeoSettings }
 
 export function useSeoSettings() {
   const { toast } = useToast()

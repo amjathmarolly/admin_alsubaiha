@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
         continue
       }
       const cur: SeoOverride = existing.get(key) ?? {
-        title: null, description: null, ogImage: null, canonicalUrl: null, noindex: false, twitterCard: null, twitterImage: null,
+        title: null, description: null, ogImage: null, canonicalUrl: null, noindex: false, twitterCard: null, twitterImage: null, h1: null, intro: null,
       }
       const canonical = text(it.canonicalUrl, 500)
       if (canonical && !/^https?:\/\//i.test(canonical)) {
@@ -51,11 +51,15 @@ export async function POST(request: NextRequest) {
         noindex: it.noindex === undefined ? cur.noindex : Boolean(it.noindex),
         twitterCard: card === undefined ? cur.twitterCard : card,
         twitterImage: text(it.twitterImage, 500) ?? cur.twitterImage,
+        h1: text(it.h1, 255) ?? cur.h1,
+        intro: text(it.intro, 2000) ?? cur.intro,
       }
       // explicit empty string clears a field
       if (it.title === "") next.title = null
       if (it.description === "") next.description = null
       if (it.ogImage === "") next.ogImage = null
+      if (it.h1 === "") next.h1 = null
+      if (it.intro === "") next.intro = null
       await saveSeo(type, key, next)
       updated++
     }

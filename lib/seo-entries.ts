@@ -23,6 +23,7 @@ interface ProductRow extends RowDataPacket {
 }
 interface CategoryRow extends RowDataPacket { name: string; slug: string; parent_name: string | null; description: string | null; image: string | null }
 interface ProjectRow extends RowDataPacket { id: string; title: string; location: string | null }
+interface BlogRow extends RowDataPacket { title: string; slug: string; excerpt: string | null; image: string | null }
 interface DesignerRow extends RowDataPacket { id: string; name: string }
 
 export function firstImage(images: unknown): string | null {
@@ -56,7 +57,14 @@ export async function listEntries(type: SeoEntityType): Promise<SeoEntry[]> {
   const seo = (k: string) => overrides.get(k) ?? null
 
   if (type === "page") {
-    return STATIC_PAGES.map((p) => ({ type, key: p.key, label: p.label, path: p.key, seo: seo(p.key), defaults: noDefaults }))
+    const pages: SeoEntry[] = STATIC_PAGES.map((p) => ({ type, key: p.key, label: p.label, path: p.key, seo: seo(p.key), defaults: noDefaults }))
+    // Blog posts: keyed by their website path so the website can look them up.
+    const blogs = await query<BlogRow[]>(`SELECT title, slug, excerpt, image FROM blogs WHERE slug IS NOT NULL AND slug <> '' AND status = 'active' ORDER BY created_at DESC`).catch(() => [] as BlogRow[])
+    for (const b of blogs) {
+      const key = `/blogs/${b.slug}`
+      pages.push({ type, key, label: `Blog: ${b.title}`, path: key, seo: seo(key), defaults: { title: null, description: plain(b.excerpt), image: b.image || null } })
+    }
+    return pages
   }
   if (type === "product") {
     const rows = await query<ProductRow[]>(

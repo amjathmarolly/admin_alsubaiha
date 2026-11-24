@@ -34,15 +34,35 @@ export async function GET(request: NextRequest) {
     const base = (settings.org.url || siteUrl()).replace(/\/$/, "")
     const graph: Record<string, unknown>[] = []
 
+    const o = settings.org
+    const address = Object.values(o.address).some(Boolean)
+      ? { "@type": "PostalAddress", ...Object.fromEntries(Object.entries(o.address).filter(([, v]) => v)) }
+      : null
     const orgNode = {
-      "@type": "Organization",
+      // With an address it is a local business (shop + factory); otherwise a plain organization.
+      "@type": address ? ["FurnitureStore", "LocalBusiness"] : "Organization",
       "@id": `${base}/#organization`,
-      name: settings.org.name,
+      name: o.name,
+      ...(o.legalName ? { legalName: o.legalName } : {}),
       url: base,
-      ...(settings.org.logo ? { logo: abs(base, settings.org.logo) } : {}),
-      ...(settings.org.sameAs.length ? { sameAs: settings.org.sameAs } : {}),
-      ...(settings.org.phone || settings.org.email
-        ? { contactPoint: { "@type": "ContactPoint", contactType: "customer service", ...(settings.org.phone ? { telephone: settings.org.phone } : {}), ...(settings.org.email ? { email: settings.org.email } : {}) } }
+      ...(o.logo ? { logo: abs(base, o.logo) } : {}),
+      ...(o.image || o.logo ? { image: abs(base, o.image || o.logo) } : {}),
+      ...(o.sameAs.length ? { sameAs: o.sameAs } : {}),
+      ...(o.phone ? { telephone: o.phone } : {}),
+      ...(o.email ? { email: o.email } : {}),
+      ...(o.foundingDate ? { foundingDate: o.foundingDate } : {}),
+      ...(address ? { address } : {}),
+      ...(o.geo.latitude != null && o.geo.longitude != null
+        ? { geo: { "@type": "GeoCoordinates", latitude: o.geo.latitude, longitude: o.geo.longitude } }
+        : {}),
+      ...(o.openingHours.length ? { openingHours: o.openingHours } : {}),
+      ...(o.priceRange ? { priceRange: o.priceRange } : {}),
+      ...(o.areaServed.length ? { areaServed: o.areaServed.map((name) => ({ "@type": "Place", name })) } : {}),
+      ...(o.rating.value && o.rating.count
+        ? { aggregateRating: { "@type": "AggregateRating", ratingValue: o.rating.value, reviewCount: o.rating.count } }
+        : {}),
+      ...(o.phone || o.email
+        ? { contactPoint: { "@type": "ContactPoint", contactType: "customer service", ...(o.phone ? { telephone: o.phone } : {}), ...(o.email ? { email: o.email } : {}) } }
         : {}),
     }
 
