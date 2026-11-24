@@ -16,7 +16,14 @@ const FIELDS: FieldDef[] = [
 ]
 
 const fmt = (s: number | null) => (s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : "")
-const local = (iso: string | null) => (iso ? new Date(iso).toISOString().slice(0, 16) : "")
+/** ISO (UTC) -> the browser's local "YYYY-MM-DDTHH:mm" for the date picker, and back. */
+const local = (iso: string | null) => {
+  if (!iso) return ""
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ""
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+}
+const toIso = (v: string) => (v ? new Date(v).toISOString() : "")
 
 export default function FactoryVideosPage() {
   return (
@@ -32,6 +39,7 @@ export default function FactoryVideosPage() {
         fields={FIELDS}
         blank={{ youtubeId: "", title: "", description: "", uploadDate: "", duration: "", stage: "", sortOrder: 0, linkLabel: "", linkUrl: "", status: "active" }}
         toForm={(v: Item) => ({ ...v, duration: fmt(v.durationSeconds), uploadDate: local(v.uploadDate) })}
+        toBody={(f) => ({ ...f, uploadDate: toIso(f.uploadDate) })}
         searchText={(v) => `${v.title} ${v.stage ?? ""} ${v.youtubeId}`}
         renderRow={(v) => (
           <div className="flex items-start gap-3">

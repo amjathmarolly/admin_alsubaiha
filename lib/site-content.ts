@@ -16,7 +16,7 @@ export function ensureContentTables(): Promise<unknown> {
       youtube_id VARCHAR(20) NOT NULL,
       title VARCHAR(200) NOT NULL,
       description TEXT NULL,
-      upload_date DATETIME NULL,
+      upload_date VARCHAR(40) NULL,
       duration_seconds INT NULL,
       stage VARCHAR(80) NULL,
       link_label VARCHAR(120) NULL,
@@ -75,10 +75,11 @@ function seconds(v: unknown): number | null {
   return int(parts.reduce((acc, n) => acc * 60 + n, 0), 1, 86400)
 }
 
+/** Stored as an ISO 8601 timestamp (UTC), the format video schema and sitemaps need. */
 function dateTime(v: unknown): string | null {
   if (typeof v !== "string" || !v.trim()) return null
   const d = new Date(v)
-  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 19).replace("T", " ")
+  return Number.isNaN(d.getTime()) ? null : d.toISOString()
 }
 
 /** Website paths a FAQ shows on, e.g. ["/faq", "/collections/sofas"]. */
@@ -115,7 +116,7 @@ interface VideoRow extends RowDataPacket {
   youtube_id: string
   title: string
   description: string | null
-  upload_date: Date | null
+  upload_date: string | null
   duration_seconds: number | null
   stage: string | null
   link_label: string | null
@@ -129,7 +130,7 @@ const toVideo = (r: VideoRow): FactoryVideo => ({
   youtubeId: r.youtube_id,
   title: r.title,
   description: r.description,
-  uploadDate: r.upload_date ? new Date(r.upload_date).toISOString() : null,
+  uploadDate: r.upload_date || null,
   durationSeconds: r.duration_seconds,
   stage: r.stage,
   linkLabel: r.link_label,
@@ -186,7 +187,10 @@ export async function saveVideo(body: Record<string, unknown>, id?: string): Pro
     )
     return { ok: true, id: newId }
   } catch (e) {
-    if ((e as { code?: string }).code === "ER_DUP_ENTRY") return { ok: false, error: "This video is already in the list" }
+    const err = e as { code?: string; message?: string }
+    if (err.code === "ER_DUP_ENTRY" || /Duplicate entry/i.test(err.message ?? "")) {
+      return { ok: false, error: "This video is already in the list" }
+    }
     throw e
   }
 }
