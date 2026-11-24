@@ -18,7 +18,7 @@ import { useToast } from "@/hooks/use-toast"
 export interface FieldDef {
   key: string
   label: string
-  type?: "text" | "textarea" | "number" | "datetime"
+  type?: "text" | "textarea" | "number" | "datetime" | "image"
   placeholder?: string
   hint?: string
   required?: boolean
@@ -167,7 +167,9 @@ export function ListEditor({ endpoint, listKey, noun, fields, blank, toForm, toB
                   {f.label}
                   {f.required && <span className="text-destructive"> *</span>}
                 </Label>
-                {f.type === "textarea" ? (
+                {f.type === "image" ? (
+                  <ImageField id={`f-${f.key}`} value={form[f.key] ?? ""} onChange={(v) => setForm({ ...form, [f.key]: v })} />
+                ) : f.type === "textarea" ? (
                   <Textarea id={`f-${f.key}`} rows={f.rows ?? 3} value={form[f.key] ?? ""} placeholder={f.placeholder} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })} className="bg-secondary" />
                 ) : (
                   <Input
@@ -198,6 +200,59 @@ export function ListEditor({ endpoint, listKey, noun, fields, blank, toForm, toB
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+/** Image picker: upload a file (saved by /api/upload, kept across deploys) or paste a link. */
+function ImageField({ id, value, onChange }: { id: string; value: string; onChange: (v: string) => void }) {
+  const { toast } = useToast()
+  const [uploading, setUploading] = useState(false)
+
+  const upload = async (file: File | undefined) => {
+    if (!file) return
+    setUploading(true)
+    try {
+      const body = new FormData()
+      body.append("file", file)
+      const res = await fetch("/api/upload", { method: "POST", body })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok || !d.urls?.[0]) throw new Error(d.error || "Upload failed")
+      onChange(d.urls[0])
+    } catch (e) {
+      toast({ title: "Error", description: (e as Error).message, variant: "destructive" })
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <div className="flex items-start gap-3">
+      <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-secondary">
+        {value ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={value} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <span className="text-xs text-muted-foreground">No photo</span>
+        )}
+      </div>
+      <div className="min-w-0 flex-1 space-y-2">
+        <Input id={id} value={value} placeholder="/uploads/... or https://..." onChange={(e) => onChange(e.target.value)} className="bg-secondary" />
+        <div className="flex gap-2">
+          <Button type="button" variant="outline" size="sm" disabled={uploading} asChild>
+            <label className="cursor-pointer">
+              {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+              Upload photo
+              <input type="file" accept="image/*" className="hidden" onChange={(e) => { upload(e.target.files?.[0]); e.target.value = "" }} />
+            </label>
+          </Button>
+          {value && (
+            <Button type="button" variant="ghost" size="sm" onClick={() => onChange("")}>
+              Remove
+            </Button>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
