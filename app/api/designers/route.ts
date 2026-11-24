@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { query, getPaginationSQL, type PaginatedResult, type PaginationParams } from "@/lib/db/config";
 import type { RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import { withCors } from "@/lib/cors";
+import { ensureDesignerColumns, readHoverVideo } from "@/lib/designer-media";
+import { revalidateWebsite } from "@/lib/seo";
 
 interface DesignerRow extends RowDataPacket {
   id: string;
@@ -15,6 +17,7 @@ interface DesignerRow extends RowDataPacket {
   social_links: string | any;
   status: "active" | "inactive";
   sort_order: number;
+  hover_video?: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -41,6 +44,7 @@ const parseJSONField = (field: any) => {
 // GET /api/designers
 async function getHandler(request: NextRequest) {
   try {
+    await ensureDesignerColumns();
     const { searchParams } = new URL(request.url);
 
     const params: PaginationParams = {
@@ -81,6 +85,7 @@ async function getHandler(request: NextRequest) {
       design_principles: parseJSONField(item.design_principles),
       notable_works: parseJSONField(item.notable_works),
       social_links: parseJSONField(item.social_links),
+      hover_video: item.hover_video || null,
     }));
 
     const result: PaginatedResult<any> = {
@@ -106,6 +111,7 @@ async function getHandler(request: NextRequest) {
 // POST /api/designers
 async function postHandler(request: NextRequest) {
   try {
+    await ensureDesignerColumns();
     const body = await request.json();
     const {
       name,
@@ -119,6 +125,11 @@ async function postHandler(request: NextRequest) {
       status,
       sortOrder,
     } = body;
+
+    const hover = readHoverVideo(body);
+    if (hover.provided && "error" in hover) {
+      return NextResponse.json({ error: hover.error }, { status: 400 });
+    }
 
     if (!name || !image || !shortBio || !inspirationText) {
       return NextResponse.json(
@@ -134,8 +145,8 @@ async function postHandler(request: NextRequest) {
       .replace(/(^-|-$)+/g, "") + `-${Date.now().toString().slice(-4)}`; // append random digits for uniqueness
 
     const insertQuery = `
-      INSERT INTO designers (id, name, image, short_bio, inspiration_text, design_principles, notable_works, website, social_links, status, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO designers (id, name, image, short_bio, inspiration_text, design_principles, notable_works, website, social_links, status, sort_order, hover_video)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     await query<ResultSetHeader>(insertQuery, [
@@ -150,6 +161,7 @@ async function postHandler(request: NextRequest) {
       JSON.stringify(socialLinks || {}),
       status || "active",
       sortOrder || 0,
+      hover.provided && "value" in hover ? hover.value : null,
     ]);
 
     const [newItem] = await query<DesignerRow[]>("SELECT * FROM designers WHERE id = ?", [id]);
@@ -159,8 +171,10 @@ async function postHandler(request: NextRequest) {
       design_principles: parseJSONField(newItem.design_principles),
       notable_works: parseJSONField(newItem.notable_works),
       social_links: parseJSONField(newItem.social_links),
+      hover_video: newItem.hover_video || null,
     };
 
+    await revalidateWebsite().catch(() => false);
     return NextResponse.json(formattedItem, { status: 201 });
   } catch (error: any) {
     console.error("POST /api/designers error:", error);

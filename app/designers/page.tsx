@@ -69,6 +69,7 @@ export interface DesignerData {
   };
   status: "active" | "inactive";
   sort_order: number;
+  hover_video?: string | null;
 }
 
 export default function DesignersAdminPage() {
@@ -87,6 +88,8 @@ export default function DesignersAdminPage() {
   // Form State
   const [name, setName] = useState("");
   const [image, setImage] = useState("");
+  const [hoverVideo, setHoverVideo] = useState("");
+  const [isVideoUploading, setIsVideoUploading] = useState(false);
   const [shortBio, setShortBio] = useState("");
   const [inspirationText, setInspirationText] = useState("");
   const [website, setWebsite] = useState("");
@@ -190,6 +193,7 @@ export default function DesignersAdminPage() {
     setSelectedItem(null);
     setName("");
     setImage("");
+    setHoverVideo("");
     setShortBio("");
     setInspirationText("");
     setWebsite("");
@@ -222,6 +226,7 @@ export default function DesignersAdminPage() {
     setSelectedItem(item);
     setName(item.name || "");
     setImage(item.image || "");
+    setHoverVideo(item.hover_video || "");
     setShortBio(item.short_bio || "");
     setInspirationText(item.inspiration_text || "");
     setWebsite(item.website || "");
@@ -456,6 +461,33 @@ export default function DesignersAdminPage() {
     }
   };
 
+  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!/\.(mp4|webm)$/i.test(file.name)) {
+      toast.error("Choose an .mp4 or .webm video");
+      return;
+    }
+    if (file.size > 3 * 1024 * 1024) {
+      toast.warning("This video is over 3 MB; a smaller clip loads faster on the website.");
+    }
+    try {
+      setIsVideoUploading(true);
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.urls?.[0]) throw new Error(data.error || "Upload failed");
+      setHoverVideo(data.urls[0]);
+      toast.success("Video uploaded");
+    } catch (err) {
+      toast.error((err as Error).message || "Failed to upload video");
+    } finally {
+      setIsVideoUploading(false);
+    }
+  };
+
   // Save changes
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -480,6 +512,7 @@ export default function DesignersAdminPage() {
         },
         status,
         sortOrder,
+        hoverVideo: hoverVideo.trim(),
       };
 
       const url = selectedItem ? `/api/designers/${selectedItem.id}` : "/api/designers";
@@ -775,6 +808,57 @@ export default function DesignersAdminPage() {
                     src={image.startsWith("/") ? `${process.env.NEXT_PUBLIC_ADMIN_URL || ""}${image}` : image}
                     alt="Preview"
                     className="h-full w-full object-cover"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Hover video */}
+            <div className="space-y-3">
+              <Label>Hover video</Label>
+              <div className="flex flex-col md:flex-row items-center gap-4">
+                <div className="flex-1 w-full">
+                  <Input
+                    value={hoverVideo}
+                    onChange={(e) => setHoverVideo(e.target.value)}
+                    placeholder="Video URL or upload an .mp4 / .webm"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="file"
+                    accept="video/mp4,video/webm,.mp4,.webm"
+                    onChange={handleVideoUpload}
+                    className="hidden"
+                    id="hover-video-input"
+                    disabled={isVideoUploading}
+                  />
+                  <Label
+                    htmlFor="hover-video-input"
+                    className="flex items-center gap-2 px-4 py-2 border rounded-md cursor-pointer bg-secondary hover:bg-secondary-foreground hover:text-white transition-colors"
+                  >
+                    {isVideoUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    Upload video
+                  </Label>
+                  {hoverVideo && (
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setHoverVideo("")}>
+                      Remove
+                    </Button>
+                  )}
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">Short muted clip, under 3 MB, vertical like the photo. Plays when the mouse is over the designer on the website.</p>
+              {hoverVideo && (
+                <div className="mt-2 h-32 w-20 overflow-hidden border rounded bg-muted">
+                  <video
+                    key={hoverVideo}
+                    src={hoverVideo.startsWith("/") ? `${process.env.NEXT_PUBLIC_ADMIN_URL || ""}${hoverVideo}` : hoverVideo}
+                    className="h-full w-full object-cover"
+                    muted
+                    loop
+                    autoPlay
+                    playsInline
+                    controls={false}
                   />
                 </div>
               )}
