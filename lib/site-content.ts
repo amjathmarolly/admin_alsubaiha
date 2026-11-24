@@ -4,6 +4,7 @@
  */
 import { randomUUID } from "crypto"
 import { query } from "@/lib/db/config"
+import { addColumnIfMissing } from "@/lib/seo"
 import type { RowDataPacket } from "mysql2"
 
 const OPTS = "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
@@ -37,6 +38,9 @@ export function ensureContentTables(): Promise<unknown> {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ${OPTS}`)
+    await addColumnIfMissing("faqs", "image", "VARCHAR(500) NULL")
+    await addColumnIfMissing("faqs", "image_alt", "VARCHAR(300) NULL")
+    await addColumnIfMissing("faqs", "category", "VARCHAR(80) NULL")
   })().catch((e) => {
     ready = null
     throw e
@@ -208,6 +212,10 @@ export interface Faq {
   answer: string
   /** Website paths the question appears on. Empty = FAQ page only. */
   pages: string[]
+  /** Photo URL (/uploads/... or absolute), or null. */
+  image: string | null
+  imageAlt: string | null
+  category: string | null
   sortOrder: number
   status: "active" | "draft"
 }
@@ -217,6 +225,9 @@ interface FaqRow extends RowDataPacket {
   question: string
   answer: string
   pages: string | null
+  image: string | null
+  image_alt: string | null
+  category: string | null
   sort_order: number
   status: string
 }
@@ -229,7 +240,17 @@ const toFaq = (r: FaqRow): Faq => {
   } catch {
     /* empty */
   }
-  return { id: r.id, question: r.question, answer: r.answer, pages, sortOrder: r.sort_order, status: r.status === "draft" ? "draft" : "active" }
+  return {
+    id: r.id,
+    question: r.question,
+    answer: r.answer,
+    pages,
+    image: r.image || null,
+    imageAlt: r.image_alt || null,
+    category: r.category || null,
+    sortOrder: r.sort_order,
+    status: r.status === "draft" ? "draft" : "active",
+  }
 }
 
 /** FAQ page = "/faq". A FAQ with no pages set shows on the FAQ page only. */
@@ -253,13 +274,30 @@ export async function saveFaq(body: Record<string, unknown>, id?: string): Promi
   const answer = text(body.answer, 5000)
   if (!question) return { ok: false, error: "Question is required" }
   if (!answer) return { ok: false, error: "Answer is required" }
-  const values = [question, answer, JSON.stringify(paths(body.pages)), int(body.sortOrder, -100000, 100000) ?? 0, status(body.status)]
+  const image = text(body.image, 500)
+  if (image && !/^(\/|https?:\/\/)/i.test(image)) return { ok: false, error: "Photo must be an uploaded file or start with https://" }
+  const values = [
+    question,
+    answer,
+    JSON.stringify(paths(body.pages)),
+    image,
+    image ? text(body.imageAlt, 300) : null,
+    text(body.category, 80),
+    int(body.sortOrder, -100000, 100000) ?? 0,
+    status(body.status),
+  ]
   if (id) {
-    await query("UPDATE faqs SET question=?, answer=?, pages=?, sort_order=?, status=? WHERE id=?", [...values, id])
+    await query(
+      "UPDATE faqs SET question=?, answer=?, pages=?, image=?, image_alt=?, category=?, sort_order=?, status=? WHERE id=?",
+      [...values, id]
+    )
     return { ok: true, id }
   }
   const newId = randomUUID()
-  await query("INSERT INTO faqs (id, question, answer, pages, sort_order, status) VALUES (?, ?, ?, ?, ?, ?)", [newId, ...values])
+  await query(
+    "INSERT INTO faqs (id, question, answer, pages, image, image_alt, category, sort_order, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [newId, ...values]
+  )
   return { ok: true, id: newId }
 }
 
