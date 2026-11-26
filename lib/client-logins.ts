@@ -12,6 +12,10 @@ export const DEFAULT_BOARD_IDS = ["18402982895"]
 const PHONE_COL = "phone_mm9f4p5f"
 const EMAIL_COL = "email_mm6m4v9y"
 const TOTAL_COL = "numbers8__1"
+const JOB_ORDER_COL = "numbers3"
+const RECEIVED_COL = "numbers__1"
+/** Expected delivery: MONDAY_DELIVERY_COLUMN, else the board's first timeline column. */
+const DELIVERY_COL = process.env.MONDAY_DELIVERY_COLUMN?.trim() || ""
 
 /** One item (order) on a Monday board. */
 export interface ClientRow {
@@ -22,6 +26,12 @@ export interface ClientRow {
   email: string
   total: number
   createdAt: string // ISO
+  /** Project details for the client's profile. */
+  jobOrderNo: string
+  group: string
+  received: number
+  /** YYYY-MM-DD, end of the timeline. */
+  expectedDelivery: string | null
 }
 
 /** All of one client's items, grouped by mobile number. */
@@ -156,6 +166,7 @@ async function mondayToken(): Promise<string> {
 
 interface MondayColumn {
   id: string
+  type?: string
   text: string | null
   value: string | null
 }
@@ -163,6 +174,7 @@ interface MondayItem {
   id: string
   name: string
   created_at: string
+  group?: { title: string } | null
   column_values: MondayColumn[]
 }
 
@@ -183,7 +195,14 @@ export function itemToRow(item: MondayItem, boardId: string): ClientRow {
   const totalCol = col(TOTAL_COL)
   const phoneRaw = String(parseJson(phoneCol?.value ?? null)?.phone ?? phoneCol?.text ?? "").trim()
   const email = String(parseJson(emailCol?.value ?? null)?.email ?? emailCol?.text ?? "").trim().toLowerCase()
-  const total = Number(String(totalCol?.text ?? "").replace(/[^\d.\-]/g, ""))
+  const num = (c?: MondayColumn) => {
+    const n = Number(String(c?.text ?? "").replace(/[^\d.\-]/g, ""))
+    return Number.isFinite(n) ? n : 0
+  }
+  const total = num(totalCol)
+  const delivery = DELIVERY_COL ? col(DELIVERY_COL) : item.column_values.find((c) => c.type === "timeline" || c.type === "timerange")
+  const to = parseJson(delivery?.value ?? null)?.to
+  const expectedDelivery = typeof to === "string" && /^\d{4}-\d{2}-\d{2}/.test(to) ? to.slice(0, 10) : null
   return {
     itemId: item.id,
     boardId,
@@ -192,10 +211,14 @@ export function itemToRow(item: MondayItem, boardId: string): ClientRow {
     email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "",
     total: Number.isFinite(total) ? total : 0,
     createdAt: item.created_at || "",
+    jobOrderNo: String(col(JOB_ORDER_COL)?.text ?? "").trim(),
+    group: String(item.group?.title ?? "").trim(),
+    received: num(col(RECEIVED_COL)),
+    expectedDelivery,
   }
 }
 
-const ITEM_FIELDS = `cursor items { id name created_at column_values(ids: ["${PHONE_COL}", "${EMAIL_COL}", "${TOTAL_COL}"]) { id text value } }`
+const ITEM_FIELDS = `cursor items { id name created_at group { title } column_values { id type text value } }`
 
 async function monday<T>(token: string, query: string, variables: Record<string, unknown>): Promise<T> {
   const res = await fetch(process.env.MONDAY_API_URL || "https://api.monday.com/v2", {

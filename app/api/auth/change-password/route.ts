@@ -63,7 +63,7 @@ const handler = async (request: NextRequest) => {
       }
       const problem = customerPasswordProblem(newPassword, c.phone_normalized)
       if (problem) return bad(problem)
-      await query("UPDATE customers SET password_hash = ?, must_change_password = 0 WHERE id = ?", [
+      await query("UPDATE customers SET password_hash = ?, must_change_password = 0, temp_password_enc = NULL WHERE id = ?", [
         await hashPassword(newPassword as string),
         c.id,
       ])

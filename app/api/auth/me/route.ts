@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { query } from "@/lib/db/config"
 import { endSession, readSession } from "@/lib/session"
 import { ensureCustomerColumns } from "@/lib/customer-accounts"
+import { projectsFor } from "@/lib/client-projects"
 import type { RowDataPacket } from "mysql2"
 import { withCors } from "@/lib/cors"
 
@@ -265,6 +266,9 @@ const meHandler = async () => {
         permissions: ["view_profile", "place_order"],
         mustChangePassword,
         customer: customerInfo,
+        // The client's projects (Monday items): total, received, balance, tracker link.
+        // Held back until a temporary password has been replaced.
+        projects: mustChangePassword ? [] : (await projectsFor([customer.id])).get(customer.id) ?? [],
         membership: membershipInfo,
         spending: spendingInfo,
       })

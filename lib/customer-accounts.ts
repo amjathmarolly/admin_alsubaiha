@@ -79,6 +79,7 @@ export function ensureCustomerColumns(): Promise<void> {
     await addColumnIfMissing("customers", "monday_total", "DECIMAL(12,2) NULL")
     await addColumnIfMissing("customers", "monday_synced_at", "DATETIME NULL")
     await addColumnIfMissing("customers", "first_order_date", "DATE NULL")
+    await addColumnIfMissing("customers", "temp_password_enc", "TEXT NULL")
     await makeEmailOptional()
     await ensurePhoneIndex()
     await backfillPhones()

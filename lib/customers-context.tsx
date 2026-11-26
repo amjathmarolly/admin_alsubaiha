@@ -16,7 +16,7 @@ export interface MembershipTier {
 
 export interface Customer {
   id: string
-  email: string
+  email: string | null
   name: string
   phone: string | null
   avatar: string | null

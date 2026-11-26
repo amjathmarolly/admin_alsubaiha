@@ -8,7 +8,9 @@ import { query } from "@/lib/db/config"
 import { readSession } from "@/lib/session"
 import { assignMembershipTier } from "@/lib/membership-utils"
 import { ensureCustomerColumns, hashPassword, temporaryPassword } from "@/lib/customer-accounts"
-import { fetchClientRows, groupClientRows, welcomeMessage, type ClientGroup, type DoubtfulGroup } from "@/lib/client-logins"
+import { clientBoardIds, fetchClientRows, groupClientRows, welcomeMessage, type ClientGroup, type ClientRow, type DoubtfulGroup } from "@/lib/client-logins"
+import { syncProjects } from "@/lib/client-projects"
+import { openTempPassword, sealTempPassword } from "@/lib/temp-password-vault"
 import { formatPhone } from "@/lib/phone"
 
 const SITE_URL = (process.env.WEBSITE_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://alsubaiha.ae").replace(/\/$/, "")
@@ -62,7 +64,8 @@ export interface Plan {
   boardItems: number
 }
 
-export async function buildPlan(): Promise<Plan> {
+/** Reads Monday and the database, and decides what to do with each client. */
+async function computePlan(): Promise<{ plan: Plan; rows: ClientRow[] }> {
   await ensureCustomerColumns()
   const rows = await fetchClientRows()
   const { groups, doubtful } = groupClientRows(rows)
@@ -98,7 +101,14 @@ export async function buildPlan(): Promise<Plan> {
     ...d,
     rows: d.rows.map((r) => ({ ...r, phoneDisplay: r.phoneRaw })),
   })
-  return { ready, doubtful: [...doubtful, ...extraDoubtful].map(withDisplay), boardItems: rows.length }
+  return {
+    plan: { ready, doubtful: [...doubtful, ...extraDoubtful].map(withDisplay), boardItems: rows.length },
+    rows,
+  }
+}
+
+export async function buildPlan(): Promise<Plan> {
+  return (await computePlan()).plan
 }
 
 function plan(g: ClientGroup, c: CustomerRow | null): PlannedClient {
@@ -126,73 +136,84 @@ export interface CreatedLogin {
 }
 
 /**
+ * Sets a new temporary password (kept encrypted for staff until the client
+ * changes it). With onlyIfNone, an account that already has a password is left alone.
+ */
+async function issueTempPassword(customerId: string, onlyIfNone: boolean): Promise<string | null> {
+  const password = temporaryPassword()
+  const res = await query<ResultSetHeader>(
+    `UPDATE customers SET password_hash = ?, temp_password_enc = ?, must_change_password = 1, verified = 1
+     WHERE id = ?${onlyIfNone ? " AND password_hash IS NULL" : ""}`,
+    [await hashPassword(password), await sealTempPassword(password), customerId]
+  )
+  return res.affectedRows ? password : null
+}
+
+/** Creates or updates one client's account. Returns the customer id and any new temporary password. */
+async function saveClient(p: PlannedClient, withPassword: boolean): Promise<{ customerId: string; password: string | null }> {
+  let customerId = p.customerId
+  if (p.action === "new") {
+    customerId = `cust-${Date.now()}-${randomBytes(3).toString("hex")}`
+    await query(
+      `INSERT INTO customers (id, name, email, phone, phone_normalized, country, status, verified, password_hash,
+         must_change_password, total_orders, total_spent, monday_total, monday_synced_at, first_order_date)
+       VALUES (?, ?, ?, ?, ?, ?, 'active', 1, NULL, 1, 0, ?, ?, NOW(), ?)`,
+      [
+        customerId,
+        p.name,
+        p.email,
+        `+${p.phone}`,
+        p.phone,
+        p.phone.startsWith("971") ? "United Arab Emirates" : null,
+        p.total,
+        p.total,
+        p.firstOrderDate,
+      ]
+    )
+  } else {
+    // Adds only the change in the Monday total, so orders already counted stay counted.
+    await query(
+      `UPDATE customers SET
+         total_spent = COALESCE(total_spent, 0) + (? - COALESCE(monday_total, 0)),
+         monday_total = ?,
+         monday_synced_at = NOW(),
+         first_order_date = IF(first_order_date IS NULL OR first_order_date > ?, ?, first_order_date),
+         email = COALESCE(email, ?)
+       WHERE id = ?`,
+      [p.total, p.total, p.firstOrderDate, p.firstOrderDate, p.email, customerId]
+    )
+  }
+  const password = withPassword && p.action !== "sync" ? await issueTempPassword(customerId as string, true) : null
+  try {
+    await assignMembershipTier(customerId as string)
+  } catch (e) {
+    console.warn("[client-logins] tier not assigned:", (e as Error).message)
+  }
+  return { customerId: customerId as string, password }
+}
+
+/**
  * Applies the plan for the chosen numbers. Re-reads Monday and the database
  * first, so nothing the browser sends is trusted beyond the list of numbers.
  * Existing passwords are never replaced.
  */
-export async function applyPlan(phones: string[]): Promise<{ created: CreatedLogin[]; synced: number; skipped: string[] }> {
+export async function applyPlan(
+  phones: string[]
+): Promise<{ created: CreatedLogin[]; synced: number; skipped: string[]; projects: number }> {
   const wanted = new Set(phones)
-  const { ready } = await buildPlan()
+  const { plan: current, rows } = await computePlan()
   const created: CreatedLogin[] = []
   const skipped: string[] = []
   let synced = 0
 
-  for (const p of ready) {
+  for (const p of current.ready) {
     if (!wanted.has(p.phone)) continue
     wanted.delete(p.phone)
     try {
-      let customerId = p.customerId
-      let password: string | null = null
-      if (p.action === "new") {
-        password = temporaryPassword()
-        customerId = `cust-${Date.now()}-${randomBytes(3).toString("hex")}`
-        await query(
-          `INSERT INTO customers (id, name, email, phone, phone_normalized, country, status, verified, password_hash,
-             must_change_password, total_orders, total_spent, monday_total, monday_synced_at, first_order_date)
-           VALUES (?, ?, ?, ?, ?, ?, 'active', 1, ?, 1, 0, ?, ?, NOW(), ?)`,
-          [
-            customerId,
-            p.name,
-            p.email,
-            `+${p.phone}`,
-            p.phone,
-            p.phone.startsWith("971") ? "United Arab Emirates" : null,
-            await hashPassword(password),
-            p.total,
-            p.total,
-            p.firstOrderDate,
-          ]
-        )
-      } else {
-        // Adds only the change in the Monday total, so orders already counted stay counted.
-        await query(
-          `UPDATE customers SET
-             total_spent = COALESCE(total_spent, 0) + (? - COALESCE(monday_total, 0)),
-             monday_total = ?,
-             monday_synced_at = NOW(),
-             first_order_date = IF(first_order_date IS NULL OR first_order_date > ?, ?, first_order_date),
-             email = COALESCE(email, ?)
-           WHERE id = ?`,
-          [p.total, p.total, p.firstOrderDate, p.firstOrderDate, p.email, customerId]
-        )
-        if (p.action === "login") {
-          password = temporaryPassword()
-          // Only when there is still no password (another staff member may have just made one).
-          const res = await query<ResultSetHeader>(
-            "UPDATE customers SET password_hash = ?, must_change_password = 1, verified = 1 WHERE id = ? AND password_hash IS NULL",
-            [await hashPassword(password), customerId]
-          )
-          if (!res.affectedRows) password = null
-        }
-      }
-      try {
-        await assignMembershipTier(customerId as string)
-      } catch (e) {
-        console.warn("[client-logins] tier not assigned:", (e as Error).message)
-      }
+      const { customerId, password } = await saveClient(p, true)
       if (password) {
         created.push({
-          customerId: customerId as string,
+          customerId,
           name: p.name,
           phoneDisplay: p.phoneDisplay,
           email: p.email,
@@ -208,7 +229,30 @@ export async function applyPlan(phones: string[]): Promise<{ created: CreatedLog
     }
   }
   for (const p of wanted) skipped.push(`+${p}: no longer ready (changed on Monday or needs checking)`)
-  return { created, synced, skipped }
+  const { saved } = await syncProjects(rows, clientBoardIds())
+  return { created, synced, skipped, projects: saved }
+}
+
+/**
+ * Automatic sync (Monday webhook or a schedule): adds new clean clients as
+ * accounts WITHOUT a password (staff issue one on Client Logins), updates
+ * totals and tiers, and refreshes projects. Doubtful rows wait for staff.
+ */
+export async function autoSync(): Promise<{ added: number; updated: number; waiting: number; projects: number; removed: number }> {
+  const { plan: current, rows } = await computePlan()
+  let added = 0
+  let updated = 0
+  for (const p of current.ready) {
+    try {
+      await saveClient(p, false)
+      if (p.action === "new") added++
+      else updated++
+    } catch (e) {
+      console.error("[client-sync] could not save", p.phoneDisplay, (e as Error).message)
+    }
+  }
+  const { saved, removed } = await syncProjects(rows, clientBoardIds())
+  return { added, updated, waiting: current.doubtful.length, projects: saved, removed }
 }
 
 interface ResetRow extends RowDataPacket {
@@ -218,16 +262,33 @@ interface ResetRow extends RowDataPacket {
   phone_normalized: string | null
 }
 
-/** A new temporary password for one client (when the first one was lost). */
+/** A new temporary password for one client (lost, or forgotten). */
 export async function resetClientPassword(customerId: string): Promise<CreatedLogin | null> {
   await ensureCustomerColumns()
   const [c] = await query<ResetRow[]>("SELECT id, name, email, phone_normalized FROM customers WHERE id = ?", [customerId])
   if (!c) return null
-  const password = temporaryPassword()
-  await query("UPDATE customers SET password_hash = ?, must_change_password = 1, verified = 1 WHERE id = ?", [
-    await hashPassword(password),
-    c.id,
-  ])
+  const password = await issueTempPassword(c.id, false)
+  if (!password) return null
+  const phone = c.phone_normalized ?? ""
+  return {
+    customerId: c.id,
+    name: c.name,
+    phoneDisplay: formatPhone(phone),
+    email: c.email,
+    password,
+    message: welcomeMessage(c.name, phone, c.email, password, SITE_URL),
+  }
+}
+
+/** The welcome message with the client's current temporary password, if they still have one. */
+export async function currentTempLogin(customerId: string): Promise<CreatedLogin | null> {
+  await ensureCustomerColumns()
+  const [c] = await query<(ResetRow & { temp_password_enc: string | null })[]>(
+    "SELECT id, name, email, phone_normalized, temp_password_enc FROM customers WHERE id = ? AND must_change_password = 1",
+    [customerId]
+  )
+  const password = await openTempPassword(c?.temp_password_enc)
+  if (!c || !password) return null
   const phone = c.phone_normalized ?? ""
   return {
     customerId: c.id,

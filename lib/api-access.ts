@@ -38,6 +38,7 @@ const AUTH_OPEN = /^\/api\/auth\/(login|logout|me|signup|verify-email|verify-otp
 const KEYED = [
   { method: "POST", path: /^\/api\/seo\/404$/ }, // x-revalidate-secret
   { method: "GET", path: /^\/api\/internal\/monday-token$/ }, // INTERNAL_API_KEY
+  { method: "POST", path: /^\/api\/client-logins\/sync$/ }, // CLIENT_SYNC_KEY, or an owner's session
 ]
 
 /** One-off database setup routes. Some of them drop tables. */
