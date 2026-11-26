@@ -82,6 +82,16 @@ export async function buildPlan(): Promise<Plan> {
       extraDoubtful.push({ reason: `Email already belongs to customer "${emailOwner.name}"`, rows: g.rows })
       continue
     }
+    const recorded = Number(existing?.total_spent) || 0
+    if (existing && existing.monday_total === null && recorded > 0) {
+      // Spending entered before (by hand or from orders) may already include these
+      // Monday items; adding the Monday total on top could count it twice.
+      extraDoubtful.push({
+        reason: `"${existing.name}" already has AED ${Math.round(recorded).toLocaleString("en-AE")} recorded; Monday total is AED ${Math.round(g.total).toLocaleString("en-AE")}. To go ahead, set their Total Spent in Customers to the part not on Monday (often 0) and refresh`,
+        rows: g.rows,
+      })
+      continue
+    }
     ready.push(plan(g, existing))
   }
   const withDisplay = (d: DoubtfulGroup) => ({
