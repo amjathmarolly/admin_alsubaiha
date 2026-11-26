@@ -6,14 +6,17 @@ import bcrypt from "bcrypt";
 
 import { ensureCustomerColumns, temporaryPassword } from "@/lib/customer-accounts";
 import { normalizePhone, isPlausiblePhone } from "@/lib/phone";
+import { hasStaffSession } from "@/lib/integration-token";
 
 // Each new customer gets their own random temporary password (sent in the welcome
-// email) and must choose a new one at first sign-in. Spending is never taken from
-// the request: it comes from orders and the client list.
+// email) and must choose a new one at first sign-in. A starting spend is taken
+// only from staff; otherwise it comes from orders and the client list.
 
 export async function POST(req: NextRequest) {
   try {
-    const { email: rawEmail, phoneNumber, firstName, lastName } = await req.json();
+    const { email: rawEmail, phoneNumber, firstName, lastName, totalSpent } = await req.json();
+    // A starting spend is accepted only from staff (Admin -> Customers -> Add customer).
+    const startingSpend = (await hasStaffSession()) ? Math.max(0, Number(totalSpent) || 0) : 0;
     const email = typeof rawEmail === "string" ? rawEmail.trim().toLowerCase() : "";
     const phone = phoneNumber ? normalizePhone(phoneNumber) : "";
     if (phone && !isPlausiblePhone(phone)) {
@@ -87,7 +90,7 @@ export async function POST(req: NextRequest) {
         `INSERT INTO customers (
           id, name, email, phone, phone_normalized, status, verified, verification_token, password_hash,
           must_change_password, total_orders, total_spent, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0, NOW(), NOW())`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, NOW(), NOW())`,
         [
           customerId,
           fullName,
@@ -98,6 +101,7 @@ export async function POST(req: NextRequest) {
           false, // verified=false initially
           verificationToken,
           passwordHash,
+          startingSpend,
         ]
       );
 
