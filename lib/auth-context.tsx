@@ -94,7 +94,7 @@ export interface TeamMember {
 interface AuthContextType {
   user: User | null
   isLoading: boolean
-  login: (email: string, password: string) => Promise<boolean>
+  login: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>
   logout: () => void
   hasPermission: (permission: Permission) => boolean
   permissions: Permission[]
@@ -255,57 +255,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user, isLoading, pathname, router])
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = async (email: string, password: string): Promise<{ ok: boolean; error?: string }> => {
     try {
-      const emailLower = email.toLowerCase().trim()
-
-      // Try calling the API first
-      console.log("[v0] Attempting login with API:", emailLower)
-      
       const response = await fetch("/api/auth/login", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include", // Important: Include cookies
-        body: JSON.stringify({
-          email: emailLower,
-          password,
-        }),
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email: email.toLowerCase().trim(), password }),
       })
-
-      console.log("[v0] API response status:", response.status)
-
-      if (response.ok) {
-        const data = await response.json()
-        console.log("[v0] Login successful via API:", data)
-
-        const newUser: User = {
-          id: data.user.id,
-          name: data.user.name,
-          email: data.user.email,
-          role: data.user.role,
-          avatar: data.user.avatar,
-        }
-
-        setUser(newUser)
-        setPermissions(data.permissions || [])
-
-        localStorage.setItem("furnish_user", JSON.stringify(newUser))
-        localStorage.setItem("furnish_permissions", JSON.stringify(data.permissions || []))
-
-        return true
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        return { ok: false, error: data.error || "Invalid email or password" }
+      }
+      if (data.user?.role === "customer") {
+        await fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => {})
+        return { ok: false, error: "This is a client account. Clients sign in on the website." }
       }
 
-      return false
-    } catch (error) {
-      console.error("[v0] Login error:", error)
-
-      return false
+      const newUser: User = {
+        id: data.user.id,
+        name: data.user.name,
+        email: data.user.email,
+        role: data.user.role,
+        avatar: data.user.avatar,
+      }
+      setUser(newUser)
+      setPermissions(data.permissions || [])
+      localStorage.setItem("furnish_user", JSON.stringify(newUser))
+      localStorage.setItem("furnish_permissions", JSON.stringify(data.permissions || []))
+      return { ok: true }
+    } catch {
+      return { ok: false, error: "Could not reach the server. Please try again." }
     }
   }
 
   const logout = () => {
+    fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => {})
     setUser(null)
     setPermissions([])
     localStorage.removeItem("furnish_user")

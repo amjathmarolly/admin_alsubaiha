@@ -6,9 +6,8 @@ import { revalidateWebsite } from "@/lib/seo"
 
 export const dynamic = "force-dynamic"
 
+// Public read: the website uses these settings (robots, organization, tracking ids).
 export async function GET() {
-  const denied = await requireAdmin()
-  if (denied) return denied
   try {
     return NextResponse.json({ settings: await getSettings() })
   } catch (error) {

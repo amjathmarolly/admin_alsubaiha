@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { query, getPaginationSQL, type PaginatedResult, type PaginationParams } from "@/lib/db/config"
 import { assignMembershipTier } from "@/lib/membership-utils"
 import type { RowDataPacket, ResultSetHeader } from "mysql2"
+import { readSession } from "@/lib/session"
 
 interface OrderRow extends RowDataPacket {
   id: string
@@ -60,7 +61,10 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get("search") || ""
     const status = searchParams.get("status") || ""
     const paymentStatus = searchParams.get("paymentStatus") || ""
-    const customerId = searchParams.get("customerId") || ""
+    // A signed-in customer (via the website) only ever sees their own orders.
+    const session = await readSession()
+    if (!session) return NextResponse.json({ error: "Please sign in" }, { status: 401 })
+    const customerId = session.isCustomer ? session.userId : searchParams.get("customerId") || ""
     const startDate = searchParams.get("startDate") || ""
     const endDate = searchParams.get("endDate") || ""
     
@@ -137,6 +141,7 @@ export async function GET(request: NextRequest) {
         );
         return {
           ...o,
+          internal_notes: session.isCustomer ? null : o.internal_notes,
           shipping_address: o.shipping_address ? JSON.parse(o.shipping_address) : null,
           billing_address: o.billing_address ? JSON.parse(o.billing_address) : null,
           items,
@@ -188,29 +193,64 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    // Calculate totals
-    let subtotal = 0
+    // Prices come from the product list; only items without a product (custom
+    // pieces) take the price staff typed in.
+    interface PricedItem { productId: string | null; name: string; sku: string | null; quantity: number; unitPrice: number }
+    const priced: PricedItem[] = []
     for (const item of items) {
-      subtotal += item.unitPrice * item.quantity
+      const quantity = Math.floor(Number(item?.quantity))
+      if (!Number.isFinite(quantity) || quantity < 1 || quantity > 10000) {
+        return NextResponse.json({ error: "Each item needs a quantity of at least 1" }, { status: 400 })
+      }
+      if (item?.productId) {
+        const [product] = await query<RowDataPacket[]>("SELECT id, name, sku, price FROM products WHERE id = ?", [
+          item.productId,
+        ])
+        if (!product) return NextResponse.json({ error: "A product in this order no longer exists" }, { status: 400 })
+        priced.push({ productId: product.id, name: product.name, sku: product.sku ?? null, quantity, unitPrice: Number(product.price) || 0 })
+      } else {
+        const unitPrice = Number(item?.unitPrice)
+        if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+          return NextResponse.json({ error: "Each custom item needs a price" }, { status: 400 })
+        }
+        priced.push({ productId: null, name: String(item?.name || "Custom item").slice(0, 255), sku: item?.sku ?? null, quantity, unitPrice })
+      }
     }
-    
-    let discountAmount = 0
-    // Apply discount if provided
+
+    let subtotal = 0
+    for (const item of priced) subtotal += item.unitPrice * item.quantity
+
+    let codeDiscount = 0
     if (discountId) {
       const [discount] = await query<RowDataPacket[]>(
         "SELECT * FROM discounts WHERE id = ? AND status = 'active' AND (starts_at IS NULL OR starts_at <= NOW()) AND (expires_at IS NULL OR expires_at >= NOW())",
         [discountId]
       )
-      
       if (discount) {
         if (discount.type === "percentage") {
-          discountAmount = subtotal * (discount.value / 100)
+          codeDiscount = subtotal * (discount.value / 100)
         } else if (discount.type === "fixed") {
-          discountAmount = Math.min(discount.value, subtotal)
+          codeDiscount = Math.min(discount.value, subtotal)
         }
       }
     }
-    
+
+    // Member privilege from the customer's tier. Not added to a discount code:
+    // the larger of the two applies.
+    let memberDiscount = 0
+    if (customerId) {
+      const [tier] = await query<RowDataPacket[]>(
+        `SELECT mp.discount_percentage FROM customers c
+         JOIN membership_plans mp ON mp.id = c.membership_tier_id AND mp.status = 'active'
+         WHERE c.id = ?`,
+        [customerId]
+      ).catch(() => [] as RowDataPacket[])
+      const pct = Number(tier?.discount_percentage) || 0
+      if (pct > 0) memberDiscount = subtotal * (Math.min(pct, 100) / 100)
+    }
+    const useCode = codeDiscount > 0 && codeDiscount >= memberDiscount
+    const discountAmount = Math.round(Math.max(codeDiscount, memberDiscount) * 100) / 100
+
     const total = subtotal - discountAmount + (shippingAmount || 0) + (taxAmount || 0)
     
     // Generate order ID and number
@@ -233,7 +273,7 @@ export async function POST(request: NextRequest) {
 
     // Get discount code if discount is applied
     let discountCode = null
-    if (discountId) {
+    if (discountId && useCode) {
       const [discountInfo] = await query<RowDataPacket[]>(
         "SELECT code FROM discounts WHERE id = ?",
         [discountId]
@@ -256,7 +296,7 @@ export async function POST(request: NextRequest) {
         orderNumber,
         customerId || null,
         customerName,
-        customerEmail,
+        customerEmail ?? "", // clients may have no email; older tables don't allow NULL here
         paymentMethod || null,
         subtotal,
         discountAmount,
@@ -264,7 +304,7 @@ export async function POST(request: NextRequest) {
         shippingAmount || 0,
         taxAmount || 0,
         total,
-        discountId || null,
+        useCode ? discountId : null,
         shippingAddress ? JSON.stringify(shippingAddress) : null,
         billingAddress ? JSON.stringify(billingAddress) : null,
         notes || null,
@@ -273,7 +313,7 @@ export async function POST(request: NextRequest) {
     )
     
     // Insert order items
-    for (const item of items) {
+    for (const item of priced) {
       const itemId = `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       await query(
         `INSERT INTO order_items (id, order_id, product_id, product_name, product_sku, quantity, unit_price, total_price)
@@ -283,7 +323,7 @@ export async function POST(request: NextRequest) {
           orderId,
           item.productId || null,
           item.name,
-          item.sku || null,
+          item.sku || "",
           item.quantity,
           item.unitPrice,
           item.unitPrice * item.quantity,
@@ -317,7 +357,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Update discount usage
-    if (discountId && discountAmount > 0) {
+    if (discountId && useCode) {
       await query(
         "UPDATE discounts SET used_count = used_count + 1 WHERE id = ?",
         [discountId]

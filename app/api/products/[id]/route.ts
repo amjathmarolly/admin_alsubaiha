@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { hasStaffSession } from "@/lib/integration-token"
 import { query } from "@/lib/db/config"
 import type { RowDataPacket, ResultSetHeader } from "mysql2"
 
@@ -74,6 +75,8 @@ export async function GET(
       tags: products[0].tags ? JSON.parse(products[0].tags) : [],
       attributes: products[0].attributes ? JSON.parse(products[0].attributes) : null,
     }
+    // What a product costs us is for staff only, not for the website.
+    if (!(await hasStaffSession())) product.cost_price = null
 
     return NextResponse.json(product)
   } catch (error) {

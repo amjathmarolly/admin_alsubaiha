@@ -4,16 +4,25 @@ import { sendEmail, generateVerificationEmail } from "@/lib/email";
 import crypto from "crypto";
 import bcrypt from "bcrypt";
 
-// Starting password for new customer accounts: DEFAULT_CUSTOMER_PASSWORD from the server
-// environment (Hostinger -> Environment variables) if set; otherwise each customer gets
-// their own random password. Either way it is sent in the welcome email.
-function startingPassword(): string {
-  return process.env.DEFAULT_CUSTOMER_PASSWORD || `As-${crypto.randomBytes(6).toString("base64url")}9`;
-}
+import { ensureCustomerColumns, temporaryPassword } from "@/lib/customer-accounts";
+import { normalizePhone, isPlausiblePhone } from "@/lib/phone";
+import { hasStaffSession } from "@/lib/integration-token";
+
+// Each new customer gets their own random temporary password (sent in the welcome
+// email) and must choose a new one at first sign-in. A starting spend is taken
+// only from staff; otherwise it comes from orders and the client list.
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, phoneNumber, firstName, lastName, totalSpent = 0 } = await req.json();
+    const { email: rawEmail, phoneNumber, firstName, lastName, totalSpent } = await req.json();
+    // A starting spend is accepted only from staff (Admin -> Customers -> Add customer).
+    const byStaff = await hasStaffSession();
+    const startingSpend = byStaff ? Math.max(0, Number(totalSpent) || 0) : 0;
+    const email = typeof rawEmail === "string" ? rawEmail.trim().toLowerCase() : "";
+    const phone = phoneNumber ? normalizePhone(phoneNumber) : "";
+    if (phone && !isPlausiblePhone(phone)) {
+      return NextResponse.json({ error: "Please enter the mobile number with its country code" }, { status: 400 });
+    }
 
     // Validation
     if (!email) {
@@ -29,6 +38,8 @@ export async function POST(req: NextRequest) {
 
     console.log(`[Signup] Creating customer account for ${email}`);
 
+    await ensureCustomerColumns();
+
     // Check if customer already exists
     const existingCustomer = await query<any[]>(
       "SELECT id FROM customers WHERE email = ?",
@@ -42,10 +53,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (phone) {
+      const samePhone = await query<any[]>("SELECT id FROM customers WHERE phone_normalized = ?", [phone]);
+      if (samePhone.length > 0) {
+        return NextResponse.json({ error: "This mobile number is already registered" }, { status: 400 });
+      }
+    }
+
     // Generate verification token
     const verificationToken = crypto.randomBytes(32).toString("hex");
 
-    const DEFAULT_PASSWORD = startingPassword();
+    const DEFAULT_PASSWORD = temporaryPassword();
 
     // Hash the default password
     const saltRounds = 10;
@@ -66,24 +84,26 @@ export async function POST(req: NextRequest) {
     const verificationLink = `${baseUrl}/api/auth/verify-email?token=${verificationToken}&email=${encodeURIComponent(email)}`;
 
     console.log(`[Signup] Verification token generated for ${email}`);
-    console.log(`[Signup] Total spent: ${totalSpent}`);
 
     // Insert customer into database with verified=false
     try {
       await query<ResultSetHeader>(
         `INSERT INTO customers (
-          id, name, email, phone, status, verified, verification_token, password_hash, total_orders, total_spent, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NOW(), NOW())`,
+          id, name, email, phone, phone_normalized, status, verified, verification_token, password_hash,
+          must_change_password, monday_link, total_orders, total_spent, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 0, ?, NOW(), NOW())`,
         [
           customerId,
           fullName,
           email,
           phoneNumber || null,
+          phone || null,
           "active",
           false, // verified=false initially
           verificationToken,
           passwordHash,
-          totalSpent || 0
+          byStaff ? 1 : 0, // only staff-made accounts may receive Monday orders
+          startingSpend,
         ]
       );
 
@@ -138,7 +158,7 @@ export async function POST(req: NextRequest) {
     console.error("[Signup] Unexpected error:", error);
 
     return NextResponse.json(
-      { error: error.message || "Failed to create account" },
+      { error: "Failed to create account" },
       { status: 500 }
     );
   }

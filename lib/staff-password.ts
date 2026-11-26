@@ -36,12 +36,19 @@ export interface StaffPasswordRow {
 
 const isBcrypt = (h: unknown): h is string => typeof h === "string" && /^\$2[aby]\$\d{2}\$.{53}$/.test(h)
 
-export async function verifyStaffPassword(user: StaffPasswordRow, password: string): Promise<boolean> {
+/**
+ * How the password matched: "hash" for the account's own password, "starter" for
+ * one of the starter passwords, or false. Starter passwords were published with
+ * the old code, so they no longer open anything: sign-in refuses them.
+ */
+export async function verifyStaffPassword(user: StaffPasswordRow, password: string): Promise<"hash" | "starter" | false> {
   if (typeof password !== "string" || !password) return false
-  if (isBcrypt(user.password_hash) && (await bcrypt.compare(password, user.password_hash))) return true
-  if (user.password_changed_at) return false
-  const starter = STARTER_HASHES[user.email.toLowerCase()]
-  return Boolean(starter) && bcrypt.compare(password, starter)
+  if (!user.password_changed_at) {
+    // Checked first: the stored hash may itself be of the starter password.
+    const starter = STARTER_HASHES[user.email.toLowerCase()]
+    if (starter && (await bcrypt.compare(password, starter))) return "starter"
+  }
+  return isBcrypt(user.password_hash) && (await bcrypt.compare(password, user.password_hash)) ? "hash" : false
 }
 
 export const MIN_PASSWORD_LENGTH = 10

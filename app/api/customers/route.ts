@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { query, getPaginationSQL, type PaginatedResult, type PaginationParams } from "@/lib/db/config"
 import { assignMembershipTier } from "@/lib/membership-utils"
+import { ensureCustomerColumns } from "@/lib/customer-accounts"
+import { normalizePhone } from "@/lib/phone"
 import type { RowDataPacket, ResultSetHeader } from "mysql2"
 
 interface CustomerRow extends RowDataPacket {
@@ -175,27 +177,37 @@ export async function POST(request: NextRequest) {
       tags,
     } = body
     
-    if (!email || !name) {
+    await ensureCustomerColumns()
+    const cleanEmail = typeof email === "string" ? email.trim().toLowerCase() : ""
+    const phoneNormalized = phone ? normalizePhone(phone) : ""
+    if (!name || (!cleanEmail && !phoneNormalized)) {
       return NextResponse.json(
-        { error: "Email and name are required" },
+        { error: "Name and an email or mobile number are required" },
         { status: 400 }
       )
+    }
+    if (phoneNormalized) {
+      const [other] = await query<RowDataPacket[]>("SELECT name FROM customers WHERE phone_normalized = ?", [phoneNormalized])
+      if (other) {
+        return NextResponse.json({ error: `This mobile number already belongs to ${other.name}` }, { status: 409 })
+      }
     }
     
     const customerId = `cust-${Date.now()}`
     
     const insertQuery = `
       INSERT INTO customers (
-        id, name, email, phone, avatar, address_line1, address_line2, city, state, 
-        postal_code, country, status, notes, tags, total_orders, total_spent
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
+        id, name, email, phone, phone_normalized, avatar, address_line1, address_line2, city, state, 
+        postal_code, country, status, notes, tags, monday_link, total_orders, total_spent
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0)
     `
     
     await query<ResultSetHeader>(insertQuery, [
       customerId,
       name,
-      email,
+      cleanEmail || null,
       phone || null,
+      phoneNormalized || null,
       avatar || null,
       addressLine1 || null,
       addressLine2 || null,
@@ -227,7 +239,7 @@ export async function POST(request: NextRequest) {
     console.error("POST /api/customers error:", error)
     if ((error as { code?: string }).code === "ER_DUP_ENTRY") {
       return NextResponse.json(
-        { error: "A customer with this email already exists" },
+        { error: "A customer with this email or mobile number already exists" },
         { status: 409 }
       )
     }

@@ -26,6 +26,7 @@ import {
   Search,
   Clapperboard,
   HelpCircle,
+  KeyRound,
 } from "lucide-react"
 import {
   AlertDialog,
@@ -67,6 +68,7 @@ const inventoryItems: NavItem[] = [
   { name: "Shipping", href: "/shipping", icon: Truck, permission: "view_shipping" },
   { name: "Discounts", href: "/discounts", icon: Tag, permission: "view_discounts" },
   { name: "Membership Plans", href: "/membership-plans", icon: Crown, permission: "manage_discounts" },
+  { name: "Client Logins", href: "/client-logins", icon: KeyRound, permission: "manage_customers" },
 ]
 
 export function Sidebar() {

@@ -25,13 +25,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Search, MoreHorizontal, Mail, UserPlus, Eye, Pencil, Trash2, ShoppingBag, Loader2, Crown } from "lucide-react"
+import { Search, MoreHorizontal, Mail, UserPlus, Eye, Pencil, Trash2, ShoppingBag, Loader2, Crown, KeyRound } from "lucide-react"
 import { DeleteDialog } from "@/components/dashboard/delete-dialog"
 import { ExportDialog } from "@/components/dashboard/export-dialog"
 import { useCurrency } from "@/lib/currency-context"
 import { AddCustomerDialog } from "@/components/dashboard/add-customer-dialog"
 import { CustomerDialog } from "@/components/dashboard/customer-dialog"
 import { SendEmailDialog } from "@/components/dashboard/send-email-dialog"
+import { ClientLoginDialog } from "@/components/dashboard/client-login-dialog"
 
 const customerExportFields = [
   { key: "id", label: "Customer ID", default: true },
@@ -67,17 +68,24 @@ export default function CustomersPage() {
   const [emailDialogOpen, setEmailDialogOpen] = useState(false)
   const [emailCustomer, setEmailCustomer] = useState<Customer | null>(null)
 
+  const [loginCustomerId, setLoginCustomerId] = useState<string | null>(null)
+
+  const q = searchQuery.toLowerCase()
+  const qDigits = searchQuery.replace(/\D/g, "")
   const filteredCustomers = customers.filter(
     (customer) =>
-      customer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      customer.email.toLowerCase().includes(searchQuery.toLowerCase())
+      customer.name.toLowerCase().includes(q) ||
+      (customer.email ?? "").toLowerCase().includes(q) ||
+      (qDigits.length >= 3 && (customer.phone ?? "").replace(/\D/g, "").includes(qDigits))
   )
 
   const totalCustomers = customers.length
   const activeCustomers = customers.filter((c) => c.status === "active").length
-  const vipCustomers = customers.filter((c) => c.total_spent >= 10000).length
-  const avgOrderValue = customers.reduce((acc, c) => acc + c.total_spent, 0) /
-    Math.max(1, customers.reduce((acc, c) => acc + c.total_orders, 0))
+  // Amounts arrive as text ("1200.00"): add them as numbers.
+  const spent = (c: Customer) => Number(c.total_spent) || 0
+  const vipCustomers = customers.filter((c) => Number(c.membership_tier?.discount_percentage) > 0).length
+  const spenders = customers.filter((c) => spent(c) > 0)
+  const avgSpend = spenders.reduce((acc, c) => acc + spent(c), 0) / Math.max(1, spenders.length)
 
   const handleDeleteClick = (customer: Customer) => {
     setCustomerToDelete(customer)
@@ -173,13 +181,13 @@ export default function CustomersPage() {
             <CardContent className="p-4">
               <p className="text-sm text-muted-foreground">VIP Customers</p>
               <p className="text-2xl font-bold">{vipCustomers}</p>
-              <p className="text-xs text-muted-foreground">$10,000+ spent</p>
+              <p className="text-xs text-muted-foreground">On a tier with a member discount</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4">
-              <p className="text-sm text-muted-foreground">Avg. Order Value</p>
-              <p className="text-2xl font-bold">{formatPrice(Math.round(avgOrderValue))}</p>
+              <p className="text-sm text-muted-foreground">Avg. Spend per Client</p>
+              <p className="text-2xl font-bold">{formatPrice(Math.round(avgSpend))}</p>
             </CardContent>
           </Card>
         </div>
@@ -188,7 +196,7 @@ export default function CustomersPage() {
           <div className="relative max-w-md flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Search customers..."
+              placeholder="Search by name, email or mobile..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10 bg-secondary"
@@ -246,7 +254,9 @@ export default function CustomersPage() {
                           </Avatar>
                           <div>
                             <span className="font-medium">{customer.name}</span>
-                            <p className="text-xs text-muted-foreground">{customer.email}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {[customer.email, customer.phone].filter(Boolean).join(" · ") || "No email or mobile"}
+                            </p>
                           </div>
                         </div>
                       </TableCell>
@@ -295,6 +305,12 @@ export default function CustomersPage() {
                               <Eye className="h-4 w-4" />
                               View Profile
                             </DropdownMenuItem>
+                            {canManage && (
+                              <DropdownMenuItem className="gap-2 cursor-pointer" onClick={() => setLoginCustomerId(customer.id)}>
+                                <KeyRound className="h-4 w-4" />
+                                Sign-in & Projects
+                              </DropdownMenuItem>
+                            )}
                             {canManage && (
                               <DropdownMenuItem className="gap-2 cursor-pointer" onClick={() => handleEditCustomer(customer)}>
                                 <Pencil className="h-4 w-4" />
@@ -349,6 +365,12 @@ export default function CustomersPage() {
         customer={selectedCustomer}
         onSave={handleCustomerSave}
         mode={dialogMode}
+      />
+
+      <ClientLoginDialog
+        customerId={loginCustomerId}
+        open={loginCustomerId !== null}
+        onOpenChange={(o) => !o && setLoginCustomerId(null)}
       />
 
       <SendEmailDialog

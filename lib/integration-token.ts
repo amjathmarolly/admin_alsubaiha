@@ -1,8 +1,8 @@
-import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 import { timingSafeEqual } from "crypto"
 import { query } from "@/lib/db/config"
 import type { RowDataPacket } from "mysql2"
+import { readSession } from "@/lib/session"
 
 // Key under which the Monday.com token is stored in store_settings.
 // Deliberately absent from KEY_MAP in /api/settings so the general settings
@@ -34,34 +34,24 @@ export function maskToken(token: string): string {
   return token.length <= 8 ? "••••" : `••••••••${token.slice(-4)}`
 }
 
-/** The userId of a valid, unexpired staff (non-customer) session, or null. */
+/** The userId of a valid staff (non-customer) session that may use the admin, or null. */
 export async function staffUserId(): Promise<string | null> {
-  const raw = (await cookies()).get("session")?.value
-  if (!raw) return null
-  try {
-    const session = JSON.parse(Buffer.from(raw, "base64").toString())
-    return session.userId && !session.isCustomer && session.exp > Date.now() ? String(session.userId) : null
-  } catch {
-    return null
-  }
+  const session = await readSession()
+  return session && !session.isCustomer && !session.mustChange ? session.userId : null
 }
 
-/** True when the request carries a valid, unexpired staff (non-customer) session. */
+/** True when the request carries a valid staff (non-customer) session. */
 export async function hasStaffSession(): Promise<boolean> {
-  // Local development only: demo-user logins (see lib/auth-context.tsx) never
-  // receive a session cookie. Production always requires a real one.
-  if (process.env.NODE_ENV !== "production") return true
   return (await staffUserId()) !== null
 }
 
 /**
- * SEO tabs are intentionally available to every dashboard user regardless of role.
- * The old admin-only gate was blocking viewers/managers from opening the page.
+ * SEO tabs are available to every signed-in staff member regardless of role
+ * (the old admin-only gate blocked viewers and managers). Answers 401 for anyone else.
  */
 export async function requireAdmin(): Promise<NextResponse | null> {
-  // Intentionally do not enforce a role check here. All SEO tabs should remain
-  // accessible to any dashboard user, including viewers and managers.
-  return null
+  if (await hasStaffSession()) return null
+  return NextResponse.json({ error: "Please sign in" }, { status: 401 })
 }
 
 /** Constant-time check of `Authorization: Bearer <INTERNAL_API_KEY>`. */
