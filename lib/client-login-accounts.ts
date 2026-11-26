@@ -64,11 +64,47 @@ export interface Plan {
   boardItems: number
 }
 
+let approvalsReady: Promise<void> | null = null
+function ensureApprovalsTable(): Promise<void> {
+  approvalsReady ??= query(
+    `CREATE TABLE IF NOT EXISTS client_number_approvals (
+       phone VARCHAR(20) NOT NULL PRIMARY KEY,
+       approved_by VARCHAR(50) NULL,
+       approved_at DATETIME NOT NULL
+     )`
+  )
+    .then(() => undefined)
+    .catch((e) => {
+      approvalsReady = null
+      throw e
+    })
+  return approvalsReady
+}
+
+/** Numbers staff approved as one client although their orders carry different names or emails. */
+async function approvedPhones(): Promise<Set<string>> {
+  await ensureApprovalsTable()
+  const rows = await query<(RowDataPacket & { phone: string })[]>("SELECT phone FROM client_number_approvals")
+  return new Set(rows.map((r) => r.phone))
+}
+
+/** Approves one held-back number as a single client. Automatic sync keeps it in step afterwards. */
+export async function approveNumber(phone: string): Promise<boolean> {
+  const { plan: current } = await computePlan()
+  if (!current.doubtful.some((d) => d.approvablePhone === phone)) return false
+  const s = await readSession()
+  await query("INSERT IGNORE INTO client_number_approvals (phone, approved_by, approved_at) VALUES (?, ?, NOW())", [
+    phone,
+    s?.userId ?? null,
+  ])
+  return true
+}
+
 /** Reads Monday and the database, and decides what to do with each client. */
 async function computePlan(): Promise<{ plan: Plan; rows: ClientRow[] }> {
   await ensureCustomerColumns()
   const rows = await fetchClientRows()
-  const { groups, doubtful } = groupClientRows(rows)
+  const { groups, doubtful } = groupClientRows(rows, await approvedPhones())
   const customers = await query<CustomerRow[]>(
     `SELECT id, name, email, phone_normalized, password_hash IS NOT NULL AS has_password, monday_total, total_spent
      FROM customers`

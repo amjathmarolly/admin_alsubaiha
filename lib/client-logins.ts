@@ -48,6 +48,8 @@ export interface ClientGroup {
 export interface DoubtfulGroup {
   reason: string
   rows: ClientRow[]
+  /** Set when staff may approve this number as one client (names or emails differ between its orders). */
+  approvablePhone?: string
 }
 
 const normName = (s: string) => s.toLowerCase().replace(/[^a-z؀-ۿ]+/g, " ").trim()
@@ -64,8 +66,17 @@ function nearlySame(a: string, b: string): boolean {
   return s.length >= 8 && l.endsWith(s)
 }
 
-/** Groups rows by mobile number and sets aside anything a person should look at first. */
-export function groupClientRows(rows: ClientRow[]): { groups: ClientGroup[]; doubtful: DoubtfulGroup[] } {
+/**
+ * Groups rows by mobile number and sets aside anything a person should look at first.
+ * The mobile number identifies the client: one name on several numbers is several
+ * clients. A number whose orders carry different names or emails (often order
+ * labels such as "kamlesh variation") waits until staff approve it as one client
+ * (approvedPhones); missing, short, landline and near-identical numbers always wait.
+ */
+export function groupClientRows(
+  rows: ClientRow[],
+  approvedPhones: Set<string> = new Set()
+): { groups: ClientGroup[]; doubtful: DoubtfulGroup[] } {
   const doubtful: DoubtfulGroup[] = []
   const byPhone = new Map<string, ClientRow[]>()
   for (const r of rows) {
@@ -85,27 +96,19 @@ export function groupClientRows(rows: ClientRow[]): { groups: ClientGroup[]; dou
     byPhone.set(p, [...(byPhone.get(p) ?? []), r])
   }
 
-  const flagged = new Map<string, string>() // phone -> reason
-  const flag = (phone: string, reason: string) => {
-    if (!flagged.has(phone)) flagged.set(phone, reason)
+  // Problems staff cannot approve away come first; then ones they can.
+  const flagged = new Map<string, { reason: string; approvable: boolean }>()
+  const flag = (phone: string, reason: string, approvable = false) => {
+    const cur = flagged.get(phone)
+    if (!cur || (cur.approvable && !approvable)) flagged.set(phone, { reason, approvable })
   }
 
   for (const [phone, list] of byPhone) {
+    if (approvedPhones.has(phone)) continue
     const names = new Set(list.map((r) => normName(r.name)).filter(Boolean))
-    if (names.size > 1) flag(phone, "One number under different names")
+    if (names.size > 1) flag(phone, "One number under different names", true)
     const emails = new Set(list.map((r) => r.email).filter(Boolean))
-    if (emails.size > 1) flag(phone, "One number with different emails")
-  }
-
-  const nameToPhones = new Map<string, Set<string>>()
-  for (const [phone, list] of byPhone) {
-    for (const r of list) {
-      const n = normName(r.name)
-      if (n) nameToPhones.set(n, (nameToPhones.get(n) ?? new Set()).add(phone))
-    }
-  }
-  for (const phones of nameToPhones.values()) {
-    if (phones.size > 1) for (const p of phones) flag(p, "One name on several numbers")
+    if (emails.size > 1) flag(phone, "One number with different emails", true)
   }
 
   const phones = [...byPhone.keys()]
@@ -129,9 +132,9 @@ export function groupClientRows(rows: ClientRow[]): { groups: ClientGroup[]; dou
 
   const groups: ClientGroup[] = []
   for (const [phone, list] of byPhone) {
-    const reason = flagged.get(phone)
-    if (reason) {
-      doubtful.push({ reason, rows: list })
+    const f = flagged.get(phone)
+    if (f) {
+      doubtful.push({ reason: f.reason, rows: list, ...(f.approvable ? { approvablePhone: phone } : {}) })
       continue
     }
     const sorted = [...list].sort((a, b) => a.createdAt.localeCompare(b.createdAt))

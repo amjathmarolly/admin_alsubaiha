@@ -30,7 +30,7 @@ interface DoubtRow {
 }
 interface Plan {
   ready: Planned[]
-  doubtful: { reason: string; rows: DoubtRow[] }[]
+  doubtful: { reason: string; rows: DoubtRow[]; approvablePhone?: string }[]
   boardItems: number
 }
 interface Created {
@@ -133,6 +133,23 @@ export default function ClientLoginsPage() {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || "Could not set a new password")
       setCreated((c) => [data, ...c.filter((x) => x.customerId !== data.customerId)])
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  const approve = async (phone: string) => {
+    setError("")
+    try {
+      const res = await fetch("/api/client-logins/approve", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Could not approve")
+      await load()
     } catch (e) {
       setError((e as Error).message)
     }
@@ -284,13 +301,22 @@ export default function ClientLoginsPage() {
                 <AlertTriangle className="h-4 w-4 text-amber-500" /> To check first ({plan.doubtful.length})
               </CardTitle>
               <CardDescription>
-                Not created. Fix the number, name or email on Monday.com (or in Customers), then refresh the preview.
+                Not created. Fix the number, name or email on Monday.com (or in Customers), then refresh the preview. When
+                one number's orders just carry different labels (e.g. &quot;kamlesh&quot; and &quot;kamlesh variation&quot;), approve it as one
+                client: it then appears under Ready, and automatic sync keeps it up to date.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {plan.doubtful.map((d, i) => (
                 <div key={i} className="rounded-md border p-3 text-sm">
-                  <p className="font-medium">{d.reason}</p>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-medium">{d.reason}</p>
+                    {d.approvablePhone && (
+                      <Button size="sm" variant="outline" onClick={() => approve(d.approvablePhone as string)}>
+                        Approve as one client
+                      </Button>
+                    )}
+                  </div>
                   {d.rows.map((r) => (
                     <p key={r.itemId} className="text-muted-foreground">
                       {r.name || "(no name)"} · {r.phoneRaw || "no number"} · {r.email || "no email"} · {aed(r.total)}
