@@ -17,7 +17,8 @@ import { query } from "@/lib/db/config"
 
 export const SESSION_COOKIE = "session"
 export const SESSION_HOURS = 24
-const SECRET_SETTING = "session_signing_key"
+// v2: the first release could leave an empty "session_signing_key" row on the live table.
+const SECRET_SETTING = "session_signing_key_v2"
 
 export interface Session {
   userId: string
@@ -43,28 +44,51 @@ export function sessionSecret(): Promise<Buffer> {
 }
 
 interface SettingRow extends RowDataPacket {
-  setting_value: string | null
+  setting_value: unknown
+}
+
+/**
+ * The stored key. Written like every other store setting (explicit id, value as
+ * JSON text) so it fits the live table, whose setting_value may be a JSON column
+ * and whose id may have no default. Read back whether mysql2 hands it over
+ * parsed (JSON column) or as text.
+ */
+function parseStored(v: unknown): string {
+  if (typeof v !== "string") return ""
+  const t = v.trim()
+  if (t.startsWith('"')) {
+    try {
+      const parsed = JSON.parse(t)
+      return typeof parsed === "string" ? parsed.trim() : ""
+    } catch {
+      return ""
+    }
+  }
+  return t
 }
 
 async function loadStoredSecret(): Promise<Buffer> {
   // Several server processes may start at once and must all use the same key:
-  // create one only when none exists, then everyone reads the same row (the
-  // smallest value; this needs only the setting_key and setting_value columns).
-  const read = () =>
-    query<SettingRow[]>(
-      "SELECT setting_value FROM store_settings WHERE setting_key = ? AND setting_value IS NOT NULL ORDER BY setting_value LIMIT 1",
+  // the first insert wins (unique setting_key; without that index everyone
+  // still picks the same row by value), and every process reads the key back.
+  const read = async () => {
+    const rows = await query<SettingRow[]>(
+      "SELECT setting_value FROM store_settings WHERE setting_key = ? ORDER BY setting_value",
       [SECRET_SETTING]
     )
-  let [row] = await read()
-  if (!row) {
-    await query("INSERT IGNORE INTO store_settings (setting_key, setting_value) VALUES (?, ?)", [
-      SECRET_SETTING,
-      randomBytes(48).toString("base64url"),
-    ])
-    ;[row] = await read()
+    return rows.map((r) => parseStored(r.setting_value)).find((v) => v.length >= 32) ?? ""
   }
-  const value = row?.setting_value?.trim() ?? ""
-  if (value.length < 32) throw new Error("Session signing key is missing or too short")
+  let value = await read()
+  if (!value) {
+    await query(
+      `INSERT INTO store_settings (id, setting_key, setting_value, updated_at)
+       VALUES (UUID(), ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE setting_key = setting_key`,
+      [SECRET_SETTING, JSON.stringify(randomBytes(48).toString("base64url"))]
+    )
+    value = await read()
+  }
+  if (value.length < 32) throw new Error("Session signing key could not be stored in store_settings")
   return Buffer.from(value)
 }
 
