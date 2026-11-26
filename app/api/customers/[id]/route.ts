@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { query } from "@/lib/db/config"
 import { assignMembershipTier } from "@/lib/membership-utils"
 import type { RowDataPacket, ResultSetHeader } from "mysql2"
+import { ensureCustomerColumns } from "@/lib/customer-accounts"
+import { normalizePhone } from "@/lib/phone"
 
 interface CustomerRow extends RowDataPacket {
   id: string
@@ -97,8 +99,10 @@ export async function PUT(
       return NextResponse.json({ error: "Customer not found" }, { status: 404 })
     }
     
+    await ensureCustomerColumns()
     const {
       name,
+      email,
       phone,
       avatar,
       addressLine1,
@@ -113,10 +117,33 @@ export async function PUT(
       total_spent,
     } = body
     
+    // Email and mobile number are how a client signs in, so both must stay unique.
+    let nextEmail: string | null = current.email ?? null
+    if (email !== undefined) {
+      const e = typeof email === "string" ? email.trim().toLowerCase() : ""
+      if (e && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) {
+        return NextResponse.json({ error: "Please enter a valid email address" }, { status: 400 })
+      }
+      nextEmail = e || null
+    }
+    const nextPhone = phone !== undefined ? phone || null : current.phone
+    const nextPhoneNormalized = nextPhone ? normalizePhone(nextPhone) || null : null
+    if (nextPhoneNormalized) {
+      const [other] = await query<RowDataPacket[]>(
+        "SELECT id, name FROM customers WHERE phone_normalized = ? AND id <> ?",
+        [nextPhoneNormalized, id]
+      )
+      if (other) {
+        return NextResponse.json({ error: `This mobile number already belongs to ${other.name}` }, { status: 409 })
+      }
+    }
+
     await query<ResultSetHeader>(
       `UPDATE customers SET
         name = COALESCE(?, name),
+        email = ?,
         phone = ?,
+        phone_normalized = ?,
         avatar = ?,
         address_line1 = ?,
         address_line2 = ?,
@@ -131,7 +158,9 @@ export async function PUT(
       WHERE id = ?`,
       [
         name !== undefined ? name : current.name,
-        phone !== undefined ? phone : current.phone,
+        nextEmail,
+        nextPhone,
+        nextPhoneNormalized,
         avatar !== undefined ? avatar : current.avatar,
         addressLine1 !== undefined ? addressLine1 : current.address_line1,
         addressLine2 !== undefined ? addressLine2 : current.address_line2,
@@ -170,6 +199,9 @@ export async function PUT(
   } catch (error) {
     const err = error as Error
     console.error("PUT /api/customers/[id] error:", err.message)
+    if ((error as { code?: string }).code === "ER_DUP_ENTRY") {
+      return NextResponse.json({ error: "Another customer already uses this email or mobile number" }, { status: 409 })
+    }
     return NextResponse.json(
       { error: err.message || "Failed to update customer" },
       { status: 500 }

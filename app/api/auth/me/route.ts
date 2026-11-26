@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { query } from "@/lib/db/config"
-import { cookies } from "next/headers"
+import { endSession, readSession } from "@/lib/session"
+import { ensureCustomerColumns } from "@/lib/customer-accounts"
 import type { RowDataPacket } from "mysql2"
 import { withCors } from "@/lib/cors"
 
@@ -22,7 +23,16 @@ interface RoleRow extends RowDataPacket {
   permissions: string
 }
 
+/** A DATE column as YYYY-MM-DD (mysql2 returns it as a local-time Date). */
+function toDateOnly(value: Date | string): string {
+  if (typeof value === "string") return value.slice(0, 10)
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`
+}
+
 interface CustomerRow extends RowDataPacket {
+  phone_normalized?: string | null
+  first_order_date?: Date | string | null
   id: string
   name: string
   email: string
@@ -57,43 +67,21 @@ interface MembershipTierRow extends RowDataPacket {
 // GET /api/auth/me - Get current user with membership and spending info
 const meHandler = async () => {
   try {
-    const cookieStore = await cookies()
-    const sessionCookie = cookieStore.get("session")
-
-    if (!sessionCookie) {
-      return NextResponse.json(
-        { error: "Not authenticated" },
-        { status: 401 }
-      )
+    const session = await readSession()
+    if (!session) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
     }
-
-    // Decode session
-    let session: any
-    try {
-      session = JSON.parse(Buffer.from(sessionCookie.value, "base64").toString())
-    } catch {
-      return NextResponse.json(
-        { error: "Invalid session" },
-        { status: 401 }
-      )
-    }
-
-    // Check expiration
-    if (session.exp < Date.now()) {
-      cookieStore.delete("session")
-      return NextResponse.json(
-        { error: "Session expired" },
-        { status: 401 }
-      )
-    }
+    const mustChangePassword = Boolean(session.mustChange)
 
     // Handle Customer Session
     if (session.isCustomer) {
+      await ensureCustomerColumns()
       const customerResult = await query<(CustomerRow & MembershipTierRow)[]>(
         `SELECT c.id, c.name, c.email, c.phone, c.avatar, c.address_line1, 
                 c.address_line2, c.city, c.state, c.postal_code, c.country,
                 c.total_spent, c.total_orders, c.tags, c.notes, c.status,
                 c.created_at, c.updated_at, c.membership_tier_id,
+                c.phone_normalized, c.first_order_date,
                 mp.id as tier_id, mp.name as tier_name, mp.tier_level, 
                 mp.discount_percentage, mp.min_purchase, mp.max_purchase, mp.color, mp.icon
          FROM customers c
@@ -103,7 +91,7 @@ const meHandler = async () => {
       )
 
       if (customerResult.length === 0 || customerResult[0].status !== "active") {
-        cookieStore.delete("session")
+        await endSession()
         return NextResponse.json(
           { error: "Customer not found or inactive" },
           { status: 401 }
@@ -117,7 +105,8 @@ const meHandler = async () => {
         id: customer.id,
         name: customer.name,
         email: customer.email,
-        phone: customer.phone,
+        phone: customer.phone_normalized || customer.phone,
+        first_order_date: customer.first_order_date ? toDateOnly(customer.first_order_date) : null,
         avatar: customer.avatar,
         totalOrders: customer.total_orders,
         status: customer.status,
@@ -275,6 +264,7 @@ const meHandler = async () => {
           updatedAt: customer.updated_at,
         },
         permissions: ["view_profile", "place_order"],
+        mustChangePassword,
         customer: customerInfo,
         membership: membershipInfo,
         spending: spendingInfo,
@@ -288,7 +278,7 @@ const meHandler = async () => {
     )
 
     if (userResult.length === 0 || userResult[0].status !== "active") {
-      cookieStore.delete("session")
+      await endSession()
       return NextResponse.json(
         { error: "User not found or inactive" },
         { status: 401 }
@@ -333,6 +323,7 @@ const meHandler = async () => {
         updatedAt: user.updated_at,
       },
       permissions,
+      mustChangePassword,
     })
   } catch (error) {
     console.error("GET /api/auth/me error:", error)

@@ -14,6 +14,8 @@ export interface User {
   email: string
   role: UserRole
   avatar?: string
+  /** Signed in with a starter password: must choose a new one before using the admin. */
+  mustChangePassword?: boolean
 }
 
 export type Permission =
@@ -94,7 +96,9 @@ export interface TeamMember {
 interface AuthContextType {
   user: User | null
   isLoading: boolean
-  login: (email: string, password: string) => Promise<boolean>
+  login: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>
+  /** Marks the forced password change as done. */
+  passwordChanged: () => void
   logout: () => void
   hasPermission: (permission: Permission) => boolean
   permissions: Permission[]
@@ -223,12 +227,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // The saved user is only a cache: if the server no longer has a session
         // (expired cookie), sign out instead of showing a dashboard that can't save.
         fetch("/api/auth/me", { credentials: "include" })
-          .then((res) => {
+          .then(async (res) => {
             if (res.status === 401) {
               localStorage.removeItem("furnish_user")
               localStorage.removeItem("furnish_permissions")
               setUser(null)
               setPermissions([])
+              return
+            }
+            const data = await res.json().catch(() => null)
+            if (data && typeof data.mustChangePassword === "boolean") {
+              setUser((u) => (u ? { ...u, mustChangePassword: data.mustChangePassword } : u))
             }
           })
           .catch(() => {})
@@ -252,60 +261,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     if (!isLoading && !user && pathname !== "/login" && pathname !== "/setup") {
       router.replace("/login")
+    } else if (!isLoading && user?.mustChangePassword && pathname !== "/change-password") {
+      router.replace("/change-password")
     }
   }, [user, isLoading, pathname, router])
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = async (email: string, password: string): Promise<{ ok: boolean; error?: string }> => {
     try {
-      const emailLower = email.toLowerCase().trim()
-
-      // Try calling the API first
-      console.log("[v0] Attempting login with API:", emailLower)
-      
       const response = await fetch("/api/auth/login", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include", // Important: Include cookies
-        body: JSON.stringify({
-          email: emailLower,
-          password,
-        }),
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email: email.toLowerCase().trim(), password }),
       })
-
-      console.log("[v0] API response status:", response.status)
-
-      if (response.ok) {
-        const data = await response.json()
-        console.log("[v0] Login successful via API:", data)
-
-        const newUser: User = {
-          id: data.user.id,
-          name: data.user.name,
-          email: data.user.email,
-          role: data.user.role,
-          avatar: data.user.avatar,
-        }
-
-        setUser(newUser)
-        setPermissions(data.permissions || [])
-
-        localStorage.setItem("furnish_user", JSON.stringify(newUser))
-        localStorage.setItem("furnish_permissions", JSON.stringify(data.permissions || []))
-
-        return true
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        return { ok: false, error: data.error || "Invalid email or password" }
+      }
+      if (data.user?.role === "customer") {
+        await fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => {})
+        return { ok: false, error: "This is a client account. Clients sign in on the website." }
       }
 
-      return false
-    } catch (error) {
-      console.error("[v0] Login error:", error)
-
-      return false
+      const newUser: User = {
+        id: data.user.id,
+        name: data.user.name,
+        email: data.user.email,
+        role: data.user.role,
+        avatar: data.user.avatar,
+        mustChangePassword: Boolean(data.mustChangePassword),
+      }
+      setUser(newUser)
+      setPermissions(data.permissions || [])
+      localStorage.setItem("furnish_user", JSON.stringify(newUser))
+      localStorage.setItem("furnish_permissions", JSON.stringify(data.permissions || []))
+      return { ok: true }
+    } catch {
+      return { ok: false, error: "Could not reach the server. Please try again." }
     }
   }
 
+  const passwordChanged = () => {
+    setUser((u) => {
+      if (!u) return u
+      const next = { ...u, mustChangePassword: false }
+      localStorage.setItem("furnish_user", JSON.stringify(next))
+      return next
+    })
+  }
+
   const logout = () => {
+    fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => {})
     setUser(null)
     setPermissions([])
     localStorage.removeItem("furnish_user")
@@ -377,6 +383,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         isLoading,
         login,
+        passwordChanged,
         logout,
         hasPermission,
         permissions,
