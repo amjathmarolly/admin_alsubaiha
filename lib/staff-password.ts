@@ -38,8 +38,8 @@ const isBcrypt = (h: unknown): h is string => typeof h === "string" && /^\$2[aby
 
 /**
  * How the password matched: "hash" for the account's own password, "starter" for
- * a starter password (published in the old code, so it must be changed at once),
- * or false when it does not match.
+ * one of the starter passwords, or false. Starter passwords were published with
+ * the old code, so they no longer open anything: sign-in refuses them.
  */
 export async function verifyStaffPassword(user: StaffPasswordRow, password: string): Promise<"hash" | "starter" | false> {
   if (typeof password !== "string" || !password) return false

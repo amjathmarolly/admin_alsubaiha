@@ -47,15 +47,21 @@ interface SettingRow extends RowDataPacket {
 }
 
 async function loadStoredSecret(): Promise<Buffer> {
-  // INSERT IGNORE + read back: several server processes may start at once, and
-  // they must all end up with the same key.
-  await query("INSERT IGNORE INTO store_settings (setting_key, setting_value) VALUES (?, ?)", [
-    SECRET_SETTING,
-    randomBytes(48).toString("base64url"),
-  ])
-  const [row] = await query<SettingRow[]>("SELECT setting_value FROM store_settings WHERE setting_key = ? LIMIT 1", [
-    SECRET_SETTING,
-  ])
+  // Several server processes may start at once and must all use the same key:
+  // create one only when none exists, then everyone reads the oldest row.
+  const read = () =>
+    query<SettingRow[]>(
+      "SELECT setting_value FROM store_settings WHERE setting_key = ? AND setting_value IS NOT NULL ORDER BY updated_at, id LIMIT 1",
+      [SECRET_SETTING]
+    )
+  let [row] = await read()
+  if (!row) {
+    await query("INSERT IGNORE INTO store_settings (setting_key, setting_value) VALUES (?, ?)", [
+      SECRET_SETTING,
+      randomBytes(48).toString("base64url"),
+    ])
+    ;[row] = await read()
+  }
   const value = row?.setting_value?.trim() ?? ""
   if (value.length < 32) throw new Error("Session signing key is missing or too short")
   return Buffer.from(value)

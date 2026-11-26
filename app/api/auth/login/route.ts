@@ -104,6 +104,14 @@ const loginHandler = async (request: NextRequest) => {
 
     const match = await verifyStaffPassword(user, password)
     if (!match) return fail()
+    if (match === "starter") {
+      // Published with the old code, so anyone could use it.
+      await recordLoginFailure(limitKey)
+      return NextResponse.json(
+        { error: "This old starter password no longer works. Ask the administrator to set a new password for this account." },
+        { status: 401 }
+      )
+    }
     if (user.status !== "active") {
       return NextResponse.json({ error: "Account is not active" }, { status: 403 })
     }
@@ -133,9 +141,8 @@ const loginHandler = async (request: NextRequest) => {
       /* not recorded */
     }
 
-    // A starter password was published with the old code: it opens only the password change.
-    const mustChangePassword = match === "starter"
-    await startSession({ userId: user.id, email: user.email, mustChange: mustChangePassword })
+    const mustChangePassword = false
+    await startSession({ userId: user.id, email: user.email })
 
     return NextResponse.json({
       user: {

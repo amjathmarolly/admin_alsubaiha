@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { hasStaffSession } from "@/lib/integration-token"
 import { query, getPaginationSQL, type PaginatedResult, type PaginationParams } from "@/lib/db/config"
 import type { RowDataPacket, ResultSetHeader } from "mysql2"
 
@@ -139,13 +140,15 @@ export async function GET(request: NextRequest) {
       ${limitSQL}
     `
     const products = await query<ProductRow[]>(productsQuery, values)
+    const staff = await hasStaffSession()
     
     const result: PaginatedResult<ProductRow> = {
       data: products.map(p => ({
         ...p,
         price: typeof p.price === 'string' ? parseFloat(p.price) : p.price,
         compare_price: p.compare_price ? (typeof p.compare_price === 'string' ? parseFloat(p.compare_price) : p.compare_price) : null,
-        cost_price: p.cost_price ? (typeof p.cost_price === 'string' ? parseFloat(p.cost_price) : p.cost_price) : null,
+        // What a product costs us is for staff only, not for the website.
+        cost_price: staff && p.cost_price ? (typeof p.cost_price === 'string' ? parseFloat(p.cost_price) : p.cost_price) : null,
         featured: Boolean(p.featured),
         available_stock: p.stock - p.reserved_stock,
         images: p.images ? JSON.parse(p.images) : [],

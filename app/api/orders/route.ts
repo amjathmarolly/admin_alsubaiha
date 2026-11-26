@@ -141,6 +141,7 @@ export async function GET(request: NextRequest) {
         );
         return {
           ...o,
+          internal_notes: session.isCustomer ? null : o.internal_notes,
           shipping_address: o.shipping_address ? JSON.parse(o.shipping_address) : null,
           billing_address: o.billing_address ? JSON.parse(o.billing_address) : null,
           items,

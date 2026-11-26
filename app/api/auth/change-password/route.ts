@@ -78,7 +78,7 @@ const handler = async (request: NextRequest) => {
       [session.userId]
     )
     if (!user || user.status !== "active") return bad("Please sign in again", 401)
-    if (!(await verifyStaffPassword(user, currentPassword))) {
+    if ((await verifyStaffPassword(user, currentPassword)) !== "hash") {
       await recordLoginFailure(limitKey)
       return bad("Current password is incorrect")
     }

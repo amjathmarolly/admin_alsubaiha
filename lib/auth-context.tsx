@@ -14,8 +14,6 @@ export interface User {
   email: string
   role: UserRole
   avatar?: string
-  /** Signed in with a starter password: must choose a new one before using the admin. */
-  mustChangePassword?: boolean
 }
 
 export type Permission =
@@ -97,8 +95,6 @@ interface AuthContextType {
   user: User | null
   isLoading: boolean
   login: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>
-  /** Marks the forced password change as done. */
-  passwordChanged: () => void
   logout: () => void
   hasPermission: (permission: Permission) => boolean
   permissions: Permission[]
@@ -227,17 +223,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // The saved user is only a cache: if the server no longer has a session
         // (expired cookie), sign out instead of showing a dashboard that can't save.
         fetch("/api/auth/me", { credentials: "include" })
-          .then(async (res) => {
+          .then((res) => {
             if (res.status === 401) {
               localStorage.removeItem("furnish_user")
               localStorage.removeItem("furnish_permissions")
               setUser(null)
               setPermissions([])
-              return
-            }
-            const data = await res.json().catch(() => null)
-            if (data && typeof data.mustChangePassword === "boolean") {
-              setUser((u) => (u ? { ...u, mustChangePassword: data.mustChangePassword } : u))
             }
           })
           .catch(() => {})
@@ -261,8 +252,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     if (!isLoading && !user && pathname !== "/login" && pathname !== "/setup") {
       router.replace("/login")
-    } else if (!isLoading && user?.mustChangePassword && pathname !== "/change-password") {
-      router.replace("/change-password")
     }
   }, [user, isLoading, pathname, router])
 
@@ -289,7 +278,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email: data.user.email,
         role: data.user.role,
         avatar: data.user.avatar,
-        mustChangePassword: Boolean(data.mustChangePassword),
       }
       setUser(newUser)
       setPermissions(data.permissions || [])
@@ -299,15 +287,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       return { ok: false, error: "Could not reach the server. Please try again." }
     }
-  }
-
-  const passwordChanged = () => {
-    setUser((u) => {
-      if (!u) return u
-      const next = { ...u, mustChangePassword: false }
-      localStorage.setItem("furnish_user", JSON.stringify(next))
-      return next
-    })
   }
 
   const logout = () => {
@@ -383,7 +362,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         isLoading,
         login,
-        passwordChanged,
         logout,
         hasPermission,
         permissions,

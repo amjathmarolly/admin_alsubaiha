@@ -118,8 +118,7 @@ const meHandler = async () => {
           postalCode: customer.postal_code,
           country: customer.country,
         },
-        tags: customer.tags ? JSON.parse(customer.tags) : [],
-        notes: customer.notes,
+        // tags and notes are the team's own remarks about the client: not shown to them.
         createdAt: customer.created_at,
         updatedAt: customer.updated_at,
       }
