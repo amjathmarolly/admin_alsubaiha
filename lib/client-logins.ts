@@ -52,6 +52,8 @@ export interface DoubtfulGroup {
   approvablePhone?: string
   /** Set when staff put this number on hold; they can release it. */
   heldPhone?: string
+  /** Set when an account not made by staff (e.g. a website sign-up) has this number; staff can confirm it is the client. */
+  linkPhone?: string
 }
 
 const normName = (s: string) => s.toLowerCase().replace(/[^a-z؀-ۿ]+/g, " ").trim()

@@ -30,7 +30,7 @@ interface DoubtRow {
 }
 interface Plan {
   ready: Planned[]
-  doubtful: { reason: string; rows: DoubtRow[]; approvablePhone?: string; heldPhone?: string }[]
+  doubtful: { reason: string; rows: DoubtRow[]; approvablePhone?: string; heldPhone?: string; linkPhone?: string }[]
   boardItems: number
 }
 interface Created {
@@ -138,14 +138,15 @@ export default function ClientLoginsPage() {
     }
   }
 
-  const approve = async (phone: string) => {
+  const approve = async (phone: string, kind?: "link") => {
+    if (kind === "link" && !window.confirm("Only confirm if you know this account belongs to this client. Their Monday orders, balance and tracker links will show in it.")) return
     setError("")
     try {
       const res = await fetch("/api/client-logins/approve", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone }),
+        body: JSON.stringify({ phone, kind }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || "Could not approve")
@@ -347,6 +348,11 @@ export default function ClientLoginsPage() {
                     {d.approvablePhone && (
                       <Button size="sm" variant="outline" onClick={() => approve(d.approvablePhone as string)}>
                         Approve as one client
+                      </Button>
+                    )}
+                    {d.linkPhone && (
+                      <Button size="sm" variant="outline" onClick={() => approve(d.linkPhone as string, "link")}>
+                        Confirm it is this client
                       </Button>
                     )}
                     {d.heldPhone && (

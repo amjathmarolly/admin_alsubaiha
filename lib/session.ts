@@ -48,10 +48,11 @@ interface SettingRow extends RowDataPacket {
 
 async function loadStoredSecret(): Promise<Buffer> {
   // Several server processes may start at once and must all use the same key:
-  // create one only when none exists, then everyone reads the oldest row.
+  // create one only when none exists, then everyone reads the same row (the
+  // smallest value; this needs only the setting_key and setting_value columns).
   const read = () =>
     query<SettingRow[]>(
-      "SELECT setting_value FROM store_settings WHERE setting_key = ? AND setting_value IS NOT NULL ORDER BY updated_at, id LIMIT 1",
+      "SELECT setting_value FROM store_settings WHERE setting_key = ? AND setting_value IS NOT NULL ORDER BY setting_value LIMIT 1",
       [SECRET_SETTING]
     )
   let [row] = await read()

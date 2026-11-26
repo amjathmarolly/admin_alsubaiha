@@ -35,6 +35,7 @@ export async function ownerOnly(): Promise<string | null> {
 }
 
 interface CustomerRow extends RowDataPacket {
+  monday_link: number
   id: string
   name: string
   email: string | null
@@ -123,6 +124,17 @@ export async function setHold(phone: string, hold: boolean, note: string): Promi
   }
 }
 
+/** Staff confirm that the existing account on this number really is the Monday client. */
+export async function confirmAccountLink(phone: string): Promise<boolean> {
+  const { plan: current } = await computePlan()
+  if (!current.doubtful.some((d) => d.linkPhone === phone)) return false
+  const res = await query<ResultSetHeader>(
+    "UPDATE customers SET monday_link = 1 WHERE phone_normalized = ? AND monday_link = 0",
+    [phone]
+  )
+  return res.affectedRows > 0
+}
+
 /** Approves one held-back number as a single client. Automatic sync keeps it in step afterwards. */
 export async function approveNumber(phone: string): Promise<boolean> {
   const { plan: current } = await computePlan()
@@ -141,7 +153,7 @@ async function computePlan(): Promise<{ plan: Plan; rows: ClientRow[] }> {
   const rows = await fetchClientRows()
   const { groups, doubtful } = groupClientRows(rows, await approvedPhones(), await heldPhones())
   const customers = await query<CustomerRow[]>(
-    `SELECT id, name, email, phone_normalized, password_hash IS NOT NULL AS has_password, monday_total, total_spent
+    `SELECT id, name, email, phone_normalized, password_hash IS NOT NULL AS has_password, monday_total, total_spent, monday_link
      FROM customers`
   )
   const byPhone = new Map(customers.filter((c) => c.phone_normalized).map((c) => [c.phone_normalized as string, c]))
@@ -154,6 +166,16 @@ async function computePlan(): Promise<{ plan: Plan; rows: ClientRow[] }> {
     const emailOwner = g.email ? byEmail.get(g.email) : undefined
     if (emailOwner && emailOwner.id !== existing?.id) {
       extraDoubtful.push({ reason: `Email already belongs to customer "${emailOwner.name}"`, rows: g.rows })
+      continue
+    }
+    if (existing && !Number(existing.monday_link)) {
+      // Anyone can sign up on the website with any number: Monday orders, totals and
+      // projects go to that account only after staff confirm it is this client.
+      extraDoubtful.push({
+        reason: `An account not created by staff ("${existing.name}"${existing.email ? `, ${existing.email}` : ""}) has this number. Confirm only if it is really this client`,
+        rows: g.rows,
+        linkPhone: g.phone,
+      })
       continue
     }
     const recorded = Number(existing?.total_spent) || 0
@@ -227,8 +249,8 @@ async function saveClient(p: PlannedClient, withPassword: boolean): Promise<{ cu
     customerId = `cust-${Date.now()}-${randomBytes(3).toString("hex")}`
     await query(
       `INSERT INTO customers (id, name, email, phone, phone_normalized, country, status, verified, password_hash,
-         must_change_password, total_orders, total_spent, monday_total, monday_synced_at, first_order_date)
-       VALUES (?, ?, ?, ?, ?, ?, 'active', 1, NULL, 1, 0, ?, ?, NOW(), ?)`,
+         must_change_password, monday_link, total_orders, total_spent, monday_total, monday_synced_at, first_order_date)
+       VALUES (?, ?, ?, ?, ?, ?, 'active', 1, NULL, 1, 1, 0, ?, ?, NOW(), ?)`,
       [
         customerId,
         p.name,

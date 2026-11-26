@@ -1,7 +1,7 @@
 // POST { phone }: staff approve a held-back number (orders under different names
 // or emails) as one client. Administrators and managers only.
 import { NextRequest, NextResponse } from "next/server"
-import { approveNumber, ownerOnly } from "@/lib/client-login-accounts"
+import { approveNumber, confirmAccountLink, ownerOnly } from "@/lib/client-login-accounts"
 
 export const dynamic = "force-dynamic"
 
@@ -12,7 +12,9 @@ export async function POST(request: NextRequest) {
   const phone = typeof body?.phone === "string" && /^\d{9,15}$/.test(body.phone) ? body.phone : ""
   if (!phone) return NextResponse.json({ error: "Mobile number is required" }, { status: 400 })
   try {
-    if (!(await approveNumber(phone))) {
+    // kind "link": confirm the existing (e.g. self-signed-up) account on this number is the client.
+    const ok = body?.kind === "link" ? await confirmAccountLink(phone) : await approveNumber(phone)
+    if (!ok) {
       return NextResponse.json({ error: "This number can't be approved (it changed on Monday or needs fixing there)" }, { status: 409 })
     }
     return NextResponse.json({ ok: true })

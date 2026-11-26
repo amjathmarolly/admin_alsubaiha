@@ -80,6 +80,9 @@ export function ensureCustomerColumns(): Promise<void> {
     await addColumnIfMissing("customers", "monday_synced_at", "DATETIME NULL")
     await addColumnIfMissing("customers", "first_order_date", "DATE NULL")
     await addColumnIfMissing("customers", "temp_password_enc", "TEXT NULL")
+    // 1 = staff created or confirmed this account, so Monday orders and projects may
+    // be attached to it. Self sign-ups (and older accounts) stay 0 until staff confirm.
+    await addColumnIfMissing("customers", "monday_link", "TINYINT(1) NOT NULL DEFAULT 0")
     await makeEmailOptional()
     await ensurePhoneIndex()
     await backfillPhones()

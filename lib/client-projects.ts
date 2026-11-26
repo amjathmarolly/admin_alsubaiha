@@ -9,6 +9,7 @@ import type { ResultSetHeader, RowDataPacket } from "mysql2"
 import { query } from "@/lib/db/config"
 import type { ClientRow } from "@/lib/client-logins"
 import { normalizePhone } from "@/lib/phone"
+import { ensureCustomerColumns } from "@/lib/customer-accounts"
 
 let ready: Promise<void> | null = null
 export function ensureProjectsTable(): Promise<void> {
@@ -70,8 +71,9 @@ export async function fetchTrackerLinks(): Promise<Map<string, string> | null> {
  */
 export async function syncProjects(rows: ClientRow[], boardIds: string[]): Promise<{ saved: number; removed: number }> {
   await ensureProjectsTable()
+  await ensureCustomerColumns()
   const customers = await query<(RowDataPacket & { id: string; phone_normalized: string })[]>(
-    "SELECT id, phone_normalized FROM customers WHERE phone_normalized IS NOT NULL"
+    "SELECT id, phone_normalized FROM customers WHERE phone_normalized IS NOT NULL AND monday_link = 1"
   )
   const byPhone = new Map(customers.map((c) => [c.phone_normalized, c.id]))
   const links = await fetchTrackerLinks()

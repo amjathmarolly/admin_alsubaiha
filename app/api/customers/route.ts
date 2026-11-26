@@ -198,8 +198,8 @@ export async function POST(request: NextRequest) {
     const insertQuery = `
       INSERT INTO customers (
         id, name, email, phone, phone_normalized, avatar, address_line1, address_line2, city, state, 
-        postal_code, country, status, notes, tags, total_orders, total_spent
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
+        postal_code, country, status, notes, tags, monday_link, total_orders, total_spent
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0)
     `
     
     await query<ResultSetHeader>(insertQuery, [
