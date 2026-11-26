@@ -73,6 +73,16 @@ function ensureApprovalsTable(): Promise<void> {
        approved_at DATETIME NOT NULL
      )`
   )
+    .then(() =>
+      query(
+        `CREATE TABLE IF NOT EXISTS client_number_holds (
+           phone VARCHAR(20) NOT NULL PRIMARY KEY,
+           note VARCHAR(200) NULL,
+           held_by VARCHAR(50) NULL,
+           held_at DATETIME NOT NULL
+         )`
+      )
+    )
     .then(() => undefined)
     .catch((e) => {
       approvalsReady = null
@@ -86,6 +96,31 @@ async function approvedPhones(): Promise<Set<string>> {
   await ensureApprovalsTable()
   const rows = await query<(RowDataPacket & { phone: string })[]>("SELECT phone FROM client_number_approvals")
   return new Set(rows.map((r) => r.phone))
+}
+
+/** Numbers staff put on hold, with an optional note. */
+async function heldPhones(): Promise<Map<string, string>> {
+  await ensureApprovalsTable()
+  const rows = await query<(RowDataPacket & { phone: string; note: string | null })[]>("SELECT phone, note FROM client_number_holds")
+  return new Map(rows.map((r) => [r.phone, r.note ?? ""]))
+}
+
+/**
+ * Puts a number on hold (Create client logins and automatic sync skip it) or
+ * releases it. An account that already exists is left as it is, only no longer updated.
+ */
+export async function setHold(phone: string, hold: boolean, note: string): Promise<void> {
+  await ensureApprovalsTable()
+  if (hold) {
+    const s = await readSession()
+    await query(
+      `INSERT INTO client_number_holds (phone, note, held_by, held_at) VALUES (?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE note = VALUES(note), held_by = VALUES(held_by), held_at = NOW()`,
+      [phone, note.slice(0, 200) || null, s?.userId ?? null]
+    )
+  } else {
+    await query("DELETE FROM client_number_holds WHERE phone = ?", [phone])
+  }
 }
 
 /** Approves one held-back number as a single client. Automatic sync keeps it in step afterwards. */
@@ -104,7 +139,7 @@ export async function approveNumber(phone: string): Promise<boolean> {
 async function computePlan(): Promise<{ plan: Plan; rows: ClientRow[] }> {
   await ensureCustomerColumns()
   const rows = await fetchClientRows()
-  const { groups, doubtful } = groupClientRows(rows, await approvedPhones())
+  const { groups, doubtful } = groupClientRows(rows, await approvedPhones(), await heldPhones())
   const customers = await query<CustomerRow[]>(
     `SELECT id, name, email, phone_normalized, password_hash IS NOT NULL AS has_password, monday_total, total_spent
      FROM customers`

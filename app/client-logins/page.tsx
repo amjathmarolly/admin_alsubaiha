@@ -30,7 +30,7 @@ interface DoubtRow {
 }
 interface Plan {
   ready: Planned[]
-  doubtful: { reason: string; rows: DoubtRow[]; approvablePhone?: string }[]
+  doubtful: { reason: string; rows: DoubtRow[]; approvablePhone?: string; heldPhone?: string }[]
   boardItems: number
 }
 interface Created {
@@ -149,6 +149,29 @@ export default function ClientLoginsPage() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || "Could not approve")
+      await load()
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  const setHold = async (phone: string, hold: boolean, name = "") => {
+    let note = ""
+    if (hold) {
+      const answer = window.prompt(`Hold ${name || "this client"}? Nothing is created or updated for this number until you release it. Note (optional):`, "")
+      if (answer === null) return
+      note = answer
+    }
+    setError("")
+    try {
+      const res = await fetch("/api/client-logins/hold", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, hold, note }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || "Could not save")
       await load()
     } catch (e) {
       setError((e as Error).message)
@@ -274,6 +297,16 @@ export default function ClientLoginsPage() {
                         {r.customerName && r.customerName !== r.name ? ` · saved as "${r.customerName}"` : ""}
                       </p>
                     </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        setHold(r.phone, true, r.name)
+                      }}
+                    >
+                      Hold
+                    </Button>
                     {r.action === "sync" && (
                       <Button
                         size="sm"
@@ -314,6 +347,11 @@ export default function ClientLoginsPage() {
                     {d.approvablePhone && (
                       <Button size="sm" variant="outline" onClick={() => approve(d.approvablePhone as string)}>
                         Approve as one client
+                      </Button>
+                    )}
+                    {d.heldPhone && (
+                      <Button size="sm" variant="outline" onClick={() => setHold(d.heldPhone as string, false)}>
+                        Release hold
                       </Button>
                     )}
                   </div>

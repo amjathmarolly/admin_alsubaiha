@@ -50,17 +50,24 @@ export interface DoubtfulGroup {
   rows: ClientRow[]
   /** Set when staff may approve this number as one client (names or emails differ between its orders). */
   approvablePhone?: string
+  /** Set when staff put this number on hold; they can release it. */
+  heldPhone?: string
 }
 
 const normName = (s: string) => s.toLowerCase().replace(/[^a-z؀-ۿ]+/g, " ").trim()
 
-/** Same length and at most one digit different, or one number ends with the other. */
+/**
+ * Same length and one digit different, or two neighbouring digits swapped
+ * (0501234567 / 0502134567), or one number ends with the other.
+ */
 function nearlySame(a: string, b: string): boolean {
   if (a === b) return false
   if (a.length === b.length) {
-    let diff = 0
-    for (let i = 0; i < a.length; i++) if (a[i] !== b[i] && ++diff > 1) return false
-    return diff === 1
+    const diffs: number[] = []
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i] && diffs.push(i) > 2) return false
+    if (diffs.length === 1) return true
+    const [i, j] = diffs
+    return j === i + 1 && a[i] === b[j] && a[j] === b[i]
   }
   const [s, l] = a.length < b.length ? [a, b] : [b, a]
   return s.length >= 8 && l.endsWith(s)
@@ -75,7 +82,9 @@ function nearlySame(a: string, b: string): boolean {
  */
 export function groupClientRows(
   rows: ClientRow[],
-  approvedPhones: Set<string> = new Set()
+  approvedPhones: Set<string> = new Set(),
+  /** Numbers staff put on hold: never created or synced until released. */
+  heldPhones: Map<string, string> = new Map()
 ): { groups: ClientGroup[]; doubtful: DoubtfulGroup[] } {
   const doubtful: DoubtfulGroup[] = []
   const byPhone = new Map<string, ClientRow[]>()
@@ -132,6 +141,11 @@ export function groupClientRows(
 
   const groups: ClientGroup[] = []
   for (const [phone, list] of byPhone) {
+    if (heldPhones.has(phone)) {
+      const note = heldPhones.get(phone)
+      doubtful.push({ reason: `On hold${note ? `: ${note}` : " by staff"}`, rows: list, heldPhone: phone })
+      continue
+    }
     const f = flagged.get(phone)
     if (f) {
       doubtful.push({ reason: f.reason, rows: list, ...(f.approvable ? { approvablePhone: phone } : {}) })
