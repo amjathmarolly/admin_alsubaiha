@@ -30,7 +30,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Plus, Search, MoreHorizontal, Filter, Pencil, Trash2, Eye, ChevronRight, Loader2, Sparkles, UploadCloud, ImageIcon } from "lucide-react"
+import { Plus, Search, MoreHorizontal, Filter, Pencil, Trash2, Eye, ChevronRight, Loader2, Sparkles, UploadCloud, ImageIcon, Ruler } from "lucide-react"
+import { ProductOptionsDialog } from "@/components/dashboard/product-options-dialog"
 import { ProductDialog, type Product } from "@/components/dashboard/product-dialog"
 import { GenerateDescriptionDialog } from "@/components/dashboard/generate-description-dialog"
 import { DeleteDialog } from "@/components/dashboard/delete-dialog"
@@ -88,6 +89,7 @@ export default function ProductsPage() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [productToDelete, setProductToDelete] = useState<Product | null>(null)
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false)
+  const [optionsProduct, setOptionsProduct] = useState<Product | null>(null)
   const [importDialogOpen, setImportDialogOpen] = useState(false)
 
   const fetchProducts = useCallback(async () => {
@@ -350,6 +352,10 @@ export default function ProductsPage() {
                                   <Pencil className="h-4 w-4" />
                                   Edit Product
                                 </DropdownMenuItem>
+                                <DropdownMenuItem className="gap-2" onClick={() => setOptionsProduct(product)}>
+                                  <Ruler className="h-4 w-4" />
+                                  Sizes & Materials
+                                </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
                                   className="gap-2 text-destructive focus:text-destructive"
@@ -407,6 +413,7 @@ export default function ProductsPage() {
         title="Delete Product"
         description={`Are you sure you want to delete "${productToDelete?.name}"? This action cannot be undone.`}
       />
+      <ProductOptionsDialog product={optionsProduct} onOpenChange={(o) => !o && setOptionsProduct(null)} />
     </DashboardLayout>
   )
 }

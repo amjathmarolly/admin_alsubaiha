@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { hasStaffSession } from "@/lib/integration-token"
+import { buildOptions, ensureOptionTables, listMaterials } from "@/lib/product-options"
 import { query } from "@/lib/db/config"
 import type { RowDataPacket, ResultSetHeader } from "mysql2"
 
@@ -57,6 +58,7 @@ export async function GET(
       WHERE p.id = ? OR p.sku = ? OR p.slug = ?
     `
 
+    await ensureOptionTables().catch(() => undefined)
     const products = await query<ProductRow[]>(productQuery, [id, id, id])
 
     if (products.length === 0) {
@@ -77,6 +79,12 @@ export async function GET(
     }
     // What a product costs us is for staff only, not for the website.
     if (!(await hasStaffSession())) product.cost_price = null
+    // Size and material choices with prices, for the product page.
+    try {
+      ;(product as Record<string, unknown>).options = buildOptions(product, await listMaterials(true))
+    } catch (e) {
+      console.warn("[products] options not added:", (e as Error).message)
+    }
 
     return NextResponse.json(product)
   } catch (error) {
