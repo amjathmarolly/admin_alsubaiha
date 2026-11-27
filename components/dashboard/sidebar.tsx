@@ -27,6 +27,7 @@ import {
   Clapperboard,
   HelpCircle,
   KeyRound,
+  Layers,
 } from "lucide-react"
 import {
   AlertDialog,
@@ -51,6 +52,7 @@ const mainNavItems: NavItem[] = [
   { name: "Blogs", href: "/blogs", icon: FileText, permission: "view_blogs" },
   { name: "Products", href: "/products", icon: Package, permission: "view_products" },
   { name: "Categories", href: "/categories", icon: FolderTree, permission: "view_products" },
+  { name: "Materials", href: "/materials", icon: Layers, permission: "view_products" },
   { name: "Orders", href: "/orders", icon: ShoppingCart, permission: "view_orders" },
   { name: "Customers", href: "/customers", icon: Users, permission: "view_customers" },
   { name: "Our Work", href: "/our-work", icon: Camera, permission: "view_our_work" },

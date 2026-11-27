@@ -26,6 +26,7 @@ const PUBLIC_READ = [
   /^\/api\/blogs(\/.*)?$/,
   /^\/api\/atelier-items\/public$/,
   /^\/api\/membership-plans(\/[^/]+)?$/,
+  /^\/api\/materials$/,
   /^\/api\/seo$/,
   /^\/api\/seo\/(site|structured-data|sitemap|settings)$/,
   /^\/api\/health$/,
