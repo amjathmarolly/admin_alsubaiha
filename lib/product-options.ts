@@ -158,7 +158,7 @@ export async function saveMaterial(input: Record<string, unknown>, id?: string):
   const name = typeof input.name === "string" ? input.name.trim().slice(0, 120) : ""
   if (!name) return { ok: false, error: "Name is required" }
   const pct = Number(input.surchargePct)
-  if (!Number.isFinite(pct) || pct < -50 || pct > 500) return { ok: false, error: "Extra % must be a number between -50 and 500" }
+  if (!Number.isFinite(pct) || pct < 0 || pct > 500) return { ok: false, error: "Extra % must be a number from 0 to 500" }
   const raw = Array.isArray(input.categories)
     ? input.categories
     : typeof input.categories === "string"
@@ -199,12 +199,13 @@ export function cleanSizes(input: unknown): SizeOption[] | null | { error: strin
     const price = Number(s?.price)
     if (!label) return { error: "Each size needs a name" }
     if (!Number.isFinite(price) || price <= 0) return { error: `"${label}" needs a price` }
-    out.push({ label, width: num(s.width), depth: num(s.depth), height: num(s.height), price: roundPrice(price) })
+    out.push({ label, width: num(s.width), depth: num(s.depth), height: num(s.height), price: Math.round(price) })
   }
   return out.length ? out : null
 }
 
 interface ProductRow extends RowDataPacket {
+  dimensions: string | null
   price: string
   category_name: string | null
   size_options: string | null
@@ -213,7 +214,14 @@ interface ProductRow extends RowDataPacket {
 
 /** The size and material choices shown on one product's page, with prices. */
 export function buildOptions(
-  product: { price: number | string; category_name?: string | null; size_options?: string | null; material_ids?: string | null },
+  product: {
+    price: number | string
+    category_name?: string | null
+    size_options?: string | null
+    material_ids?: string | null
+    /** Measurements stored on the product (JSON or object {width, depth, height}). */
+    dimensions?: unknown
+  },
   materials: MaterialTier[]
 ): ProductOptions {
   const base = Number(product.price) || 0
@@ -236,7 +244,20 @@ export function buildOptions(
         price: roundPrice(base * factor),
         fromCategory: true,
       }))
-  if (sizes.length && sizes[0].fromCategory) sizes[0].price = base // the listed price stays exact
+  if (sizes.length && sizes[0].fromCategory) {
+    sizes[0].price = base // the listed price stays exact
+    // A product with its own stored measurements: the first step uses them, and the
+    // larger steps grow its width in the same proportion as the category steps.
+    const d = storedDimensions(product.dimensions)
+    if (d) {
+      const t = sizes.map((x) => x.width)
+      sizes.forEach((x, i) => {
+        x.width = t[0] ? Math.round((d.width * t[i]) / t[0]) : d.width
+        x.depth = d.depth
+        x.height = d.height
+      })
+    }
+  }
 
   const chosen = parseList(product.material_ids ?? null)
   const offered = materials
@@ -255,15 +276,31 @@ export function buildOptions(
   }
 }
 
-/** Price of one size in one material. */
+/** Price of one size in one material. No extra keeps the size price exact. */
 export function priceFor(sizePrice: number, surchargePct: number): number {
-  return roundPrice(sizePrice * (1 + surchargePct / 100))
+  return surchargePct ? roundPrice(sizePrice * (1 + surchargePct / 100)) : sizePrice
+}
+
+function storedDimensions(v: unknown): { width: number; depth: number; height: number } | null {
+  let o: unknown = v
+  if (typeof v === "string") {
+    try {
+      o = JSON.parse(v)
+    } catch {
+      return null
+    }
+  }
+  if (!o || typeof o !== "object") return null
+  const n = (x: unknown) => Math.max(0, Math.round(Number(x) || 0))
+  const r = o as Record<string, unknown>
+  const d = { width: n(r.width), depth: n(r.depth), height: n(r.height) }
+  return d.width ? d : null
 }
 
 export async function optionsForProduct(productId: string): Promise<ProductOptions | null> {
   await ensureOptionTables()
   const [p] = await query<ProductRow[]>(
-    `SELECT p.price, c.name AS category_name, p.size_options, p.material_ids
+    `SELECT p.price, c.name AS category_name, p.size_options, p.material_ids, p.dimensions
      FROM products p LEFT JOIN categories c ON c.id = p.category_id
      WHERE p.id = ? OR p.slug = ? OR p.sku = ? LIMIT 1`,
     [productId, productId, productId]

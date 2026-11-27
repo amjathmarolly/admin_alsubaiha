@@ -31,7 +31,7 @@ interface Options {
 }
 
 const aed = (n: number) => `AED ${Math.round(n).toLocaleString("en-AE")}`
-const price = (size: number, pct: number) => Math.round((size * (1 + pct / 100)) / 10) * 10
+const price = (size: number, pct: number) => (pct ? Math.round((size * (1 + pct / 100)) / 10) * 10 : size)
 
 /** Sizes (three price steps) and the materials offered for one product. */
 export function ProductOptionsDialog({
