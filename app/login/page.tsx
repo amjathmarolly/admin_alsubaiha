@@ -14,10 +14,11 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { useAuth } from "@/lib/auth-context"
+import { GoogleButton } from "@/components/google-button"
 
 export default function LoginPage() {
   const router = useRouter()
-  const { login, user, isLoading: authLoading } = useAuth()
+  const { login, loginWithGoogle, user, isLoading: authLoading } = useAuth()
   const [email, setEmail] = React.useState("")
   const [password, setPassword] = React.useState("")
   const [showPassword, setShowPassword] = React.useState(false)
@@ -133,6 +134,20 @@ export default function LoginPage() {
                 )}
               </Button>
             </form>
+            <div className="mt-6 space-y-3">
+              <GoogleButton
+                onCredential={async (credential) => {
+                  setError("")
+                  setIsLoading(true)
+                  const result = await loginWithGoogle(credential)
+                  if (result.ok) router.push("/")
+                  else {
+                    setError(result.error || "Google sign-in failed")
+                    setIsLoading(false)
+                  }
+                }}
+              />
+            </div>
           </CardContent>
         </Card>
       </div>
