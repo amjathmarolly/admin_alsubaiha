@@ -23,6 +23,7 @@ import { Camera, Shield, Loader2 } from "lucide-react"
 import { RolesTab } from "@/components/dashboard/roles-tab"
 import { useToast } from "@/hooks/use-toast"
 import { useCurrency, type CurrencyCode } from "@/lib/currency-context"
+import { GoogleLinkCard } from "@/components/dashboard/google-link-card"
 
 export default function SettingsPage() {
   const { user } = useAuth()
@@ -621,6 +622,7 @@ export default function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="security" className="space-y-6">
+          <GoogleLinkCard />
           <Card>
             <CardHeader>
               <CardTitle>Security Settings</CardTitle>

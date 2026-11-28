@@ -33,7 +33,7 @@ const PUBLIC_READ = [
 ]
 
 /** Sign-in flow: each route checks what it needs itself. */
-const AUTH_OPEN = /^\/api\/auth\/(login|logout|me|signup|verify-email|verify-otp|change-password)$/
+const AUTH_OPEN = /^\/api\/auth\/(login|logout|me|signup|verify-email|verify-otp|change-password|google)$/
 
 /** Server-to-server routes protected by their own shared key. */
 const KEYED = [

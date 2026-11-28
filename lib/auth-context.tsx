@@ -95,6 +95,8 @@ interface AuthContextType {
   user: User | null
   isLoading: boolean
   login: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>
+  /** Sign in with a Google ID token from the Google button. */
+  loginWithGoogle: (credential: string) => Promise<{ ok: boolean; error?: string }>
   logout: () => void
   hasPermission: (permission: Permission) => boolean
   permissions: Permission[]
@@ -289,6 +291,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  const loginWithGoogle = async (credential: string): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const response = await fetch("/api/auth/google", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ credential }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) return { ok: false, error: data.error || "Google sign-in failed" }
+      const newUser: User = { id: data.user.id, name: data.user.name, email: data.user.email, role: data.user.role, avatar: data.user.avatar }
+      setUser(newUser)
+      setPermissions(data.permissions || [])
+      localStorage.setItem("furnish_user", JSON.stringify(newUser))
+      localStorage.setItem("furnish_permissions", JSON.stringify(data.permissions || []))
+      return { ok: true }
+    } catch {
+      return { ok: false, error: "Could not reach the server. Please try again." }
+    }
+  }
+
   const logout = () => {
     fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => {})
     setUser(null)
@@ -362,6 +385,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         isLoading,
         login,
+        loginWithGoogle,
         logout,
         hasPermission,
         permissions,
