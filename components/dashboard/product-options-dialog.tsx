@@ -66,8 +66,10 @@ export function ProductOptionsDialog({
       .finally(() => setLoading(false))
   }, [product, toast])
 
-  const setSize = (i: number, key: keyof Size, value: string) =>
+  const setSize = (i: number, key: keyof Size, value: string) => {
+    setUsesDefaults(false) // editing a size gives the product its own sizes
     setSizes((s) => s.map((x, j) => (j === i ? { ...x, [key]: key === "label" ? value : Number(value) || 0, fromCategory: false } : x)))
+  }
 
   const save = async (resetSizes = false) => {
     if (!product) return
@@ -76,8 +78,14 @@ export function ProductOptionsDialog({
       const res = await fetch(`/api/products/${encodeURIComponent(product.id)}/options`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
+        // Sizes are sent only when staff changed them; otherwise the product keeps
+        // following its category's standard sizes and its listed price.
         body: JSON.stringify({
-          sizes: resetSizes ? null : sizes.map(({ label, width, depth, height, price }) => ({ label, width, depth, height, price })),
+          ...(resetSizes
+            ? { sizes: null }
+            : usesDefaults
+              ? {}
+              : { sizes: sizes.map(({ label, width, depth, height, price }) => ({ label, width, depth, height, price })) }),
           materialIds: [...chosen],
         }),
       })
@@ -96,7 +104,8 @@ export function ProductOptionsDialog({
   }
 
   const offered = allMaterials.filter((m) => chosen.has(m.id))
-  const min = Math.min(...offered.map((m) => m.surchargePct), 0)
+  // Cheapest offered material; with none ticked, the size price itself.
+  const min = offered.length ? Math.min(...offered.map((m) => m.surchargePct)) : 0
 
   return (
     <Dialog open={product !== null} onOpenChange={onOpenChange}>
